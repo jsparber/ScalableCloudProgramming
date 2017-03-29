@@ -55,7 +55,7 @@ publishArtifact in(Compile, packageDoc) := false
 
 publishTo := Some(Resolver.file("file", new File("artifacts")))
 
-cleanFiles <+= baseDirectory { base => base / "artifacts" }
+cleanFiles += baseDirectory { base => base / "artifacts" }.value
 
 //--------------------------------
 //----- sbt-docker settings ------
