@@ -13,7 +13,9 @@ libraryDependencies ++= {
 
   Seq(
     "org.apache.spark" %% "spark-core" % sparkV % "provided",
-    "org.apache.spark" %% "spark-sql" % sparkV % "provided"
+    "org.apache.spark" %% "spark-sql" % sparkV % "provided",
+    "org.apache.spark" % "spark-streaming_2.11" % sparkV,
+    "org.apache.bahir" %% "spark-streaming-twitter" % sparkV
   )
 }
 
@@ -21,7 +23,7 @@ libraryDependencies ++= {
 //---- sbt-assembly settings -----
 //--------------------------------
 
-val mainClassString = "SparkApplication"
+val mainClassString = "TwitterPopularTags"
 
 mainClass in assembly := Some(mainClassString)
 

@@ -1,5 +1,5 @@
-# Spark-Docker-Example
-An example of using Semantive/Spark Docker image with sbt-docker plugin to create and submit a Spark App.
+# Project for Scalable and Cloud Programming 2018/19 at UNIBO
+This project is based on [TwitterPopularTags](https://github.com/apache/bahir/blob/master/streaming-twitter/examples/src/main/scala/org/apache/spark/examples/streaming/twitter/TwitterPopularTags.scala) and [Spark-Docker-Example](https://github.com/Semantive/Spark-Docker-Example)
 
 ## Requirements
 1. [Docker](https://docs.docker.com/engine/installation/) 1.10.0+ and [docker-compose](https://docs.docker.com/compose/) 1.6.0+
