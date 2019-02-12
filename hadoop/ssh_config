@@ -1,0 +1,12 @@
+Host localhost
+   StrictHostKeyChecking no
+   UserKnownHostsFile=/dev/null
+Host hadoop
+   StrictHostKeyChecking no
+   UserKnownHostsFile=/dev/null
+Host 172.17.0.*
+   StrictHostKeyChecking no
+   UserKnownHostsFile=/dev/null
+Host 0.0.0.0
+   StrictHostKeyChecking no
+   UserKnownHostsFile=/dev/null

@@ -3,6 +3,7 @@
 set -e
 set -x
 
+sleep 30
 ${SPARK_HOME}/bin/spark-submit \
     --class "${APP_CLASS}" \
     --master spark://master:7077  \

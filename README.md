@@ -15,6 +15,9 @@ spark.twitter.consumerSecret=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 spark.twitter.accessToken=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 spark.twitter.accessTokenSecret=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 ```
+## Setup
+1. go to hadoop folder and build the docker image with the following command
+````docker build -t spark . ````
 ## Running
 1. Create docker image of the sbt-application by executing following command inside ``sbt-application`` directory:
 
