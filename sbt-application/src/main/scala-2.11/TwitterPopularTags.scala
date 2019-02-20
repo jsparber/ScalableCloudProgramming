@@ -121,7 +121,7 @@ object TwitterPopularTags {
     /* create vector for each document as a Map */
     records.foreach(m => m.apply_idf(table)) //calculate tfidf, for each value of map it is transformed into the new value
     for (a <- records.collect) {
-      println("Vector for each document: " + a.weighsVector)
+      println("Vector for each document: " + a)
     }
 
     sparkSession.stop()

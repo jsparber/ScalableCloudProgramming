@@ -19,6 +19,8 @@ class Record (val doc: String, var vector: Map[String, Double]) extends Serializ
   def apply_idf (idf: Map[String, Double]): Unit = {
     this.weighsVector.transform((key, n) => n * idf(key))
   }
+
+  override def toString: String =  this.tweet + "\n" + this.weighsVector
 }
 
 
