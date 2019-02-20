@@ -15,8 +15,6 @@
 * limitations under the License.
 */
 
-// scalastyle:off println
-
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.SparkSession
 
@@ -42,7 +40,7 @@ object TwitterPopularTags {
     .appName("TwitterPopularTags")
     .getOrCreate()
 
-    val sc = sparkSession.sparkContext;
+    val sc = sparkSession.sparkContext
     val cb = new ConfigurationBuilder
 
     cb.setDebugEnabled(true).setOAuthConsumerKey(sc.getConf.get("spark.twitter.consumerKey"))
@@ -89,28 +87,29 @@ object TwitterPopularTags {
 
     val docs = sc.textFile("hdfs://hadoop:9000/tweets*")
 
-    println("Number of documents to analize: " + docs.count)
+    println("Number of documents to analyze: " + docs.count)
 
     /* Calculate word frequency */
-    val tf = docs.map(doc => {
+    val records = docs.map(doc => {
         val wordArray = doc.split(" ")
         /* reduceByKey for array */
-        wordArray.map(word => (word.toLowerCase, 1))
+        val map = wordArray.map(word => (word.toLowerCase, 1))
         .groupBy(_._1)
         .map(l => (l._1, l._2.map(_._2).reduce(_+_)))
-        .map({case (key, n) => (key, n.toFloat/wordArray.length)})
+        .map({case (key, n) => (key, n.toDouble/wordArray.length)})
+        new Record(doc, map)
       })
-
-    for (a <- tf.collect) {
-      println("TF for each document: " + a)
+    /* Print all records containing only tf (without idf) */
+    for (a <- records.collect) {
+      println("TF for each document: " + a.weighsVector)
     }
 
     /* Calculate inverse document frequency */
     val docsSize = docs.count
-    val idf = tf.flatMap(x => x.toList)
-    .map({case (key, n) => (key, 1.0)})
+    val idf = records.flatMap(x => x.weighsVector.toList)
+    .map({case (key, _) => (key, 1.0)})
     .reduceByKey(_ + _)
-    .map({case (key, n) => (key, Math.log10(docsSize.toFloat / n))})
+    .map({case (key, n) => (key, Math.log10(docsSize.toDouble / n))})
 
     for (a <- idf.collect) {
       println("IDF for each Token: " + a)
@@ -120,8 +119,8 @@ object TwitterPopularTags {
     *  because collect moves all data back to the driver application */
     val table = idf.collect.toMap
     /* create vector for each document as a Map */
-    val vector = tf.map(m => m.transform((key, n) => n * table(key)))
-    for (a <- vector.collect) {
+    records.foreach(m => m.apply_idf(table)) //calculate tfidf, for each value of map it is transformed into the new value
+    for (a <- records.collect) {
       println("Vector for each document: " + a)
     }
 
