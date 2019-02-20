@@ -9,7 +9,8 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.rdd.RDD._
 
 import scala.collection.mutable
-class Record (val doc: String, var vector: Map[String, Double]) {
+@SerialVersionUID(100L)
+class Record (val doc: String, var vector: Map[String, Double]) extends Serializable {
   val tweet: String = doc
   var weighsVector = vector
   var isVisited: State = Unvisited
