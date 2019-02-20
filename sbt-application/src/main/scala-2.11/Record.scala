@@ -12,8 +12,8 @@ import scala.collection.mutable
 @SerialVersionUID(100L)
 class Record (val doc: String, var vector: Map[String, Double]) extends Serializable {
   val tweet: String = doc
-  var weighsVector = vector
-  var isVisited: State = Unvisited
+  var weighsVector = vector.withDefaultValue(0.0)
+  var state: State = Unvisited
   var neighbors: Set[Record] = Set()
 
   def apply_idf (idf: Map[String, Double]): Unit = {

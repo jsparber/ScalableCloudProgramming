@@ -119,9 +119,9 @@ object TwitterPopularTags {
     *  because collect moves all data back to the driver application */
     val table = idf.collect.toMap
     /* create vector for each document as a Map */
-    val vector = records.map(m => m.apply_idf(table)) //calculate tfidf, for each value of map it is transformed into the new value
-    for (a <- vector.collect) {
-      println("Vector for each document: " + a)
+    records.foreach(m => m.apply_idf(table)) //calculate tfidf, for each value of map it is transformed into the new value
+    for (a <- records.collect) {
+      println("Vector for each document: " + a.weighsVector)
     }
 
     sparkSession.stop()
