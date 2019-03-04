@@ -1,19 +1,19 @@
 /*
-* Licensed to the Apache Software Foundation (ASF) under one or more
-* contributor license agreements.  See the NOTICE file distributed with
-* this work for additional information regarding copyright ownership.
-* The ASF licenses this file to You under the Apache License, Version 2.0
-* (the "License"); you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*    http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.SparkSession
@@ -30,23 +30,25 @@ object TwitterPopularTags {
     if (!Logger.getRootLogger.getAllAppenders.hasMoreElements) {
       Logger.getRootLogger.setLevel(Level.OFF)
     }
-    */
+     */
 
     /* Overwrite Log level */
     Logger.getRootLogger.setLevel(Level.OFF)
 
-    val sparkSession = SparkSession
-    .builder
-    .appName("TwitterPopularTags")
-    .getOrCreate()
+    val sparkSession = SparkSession.builder
+      .appName("TwitterPopularTags")
+      .getOrCreate()
 
     val sc = sparkSession.sparkContext
     val cb = new ConfigurationBuilder
 
-    cb.setDebugEnabled(true).setOAuthConsumerKey(sc.getConf.get("spark.twitter.consumerKey"))
-    .setOAuthConsumerSecret(sc.getConf.get("spark.twitter.consumerSecret"))
-    .setOAuthAccessToken(sc.getConf.get("spark.twitter.accessToken"))
-    .setOAuthAccessTokenSecret(sc.getConf.get("spark.twitter.accessTokenSecret"))
+    cb.setDebugEnabled(true)
+      .setOAuthConsumerKey(sc.getConf.get("spark.twitter.consumerKey"))
+      .setOAuthConsumerSecret(sc.getConf.get("spark.twitter.consumerSecret"))
+      .setOAuthAccessToken(sc.getConf.get("spark.twitter.accessToken"))
+      .setOAuthAccessTokenSecret(
+        sc.getConf.get("spark.twitter.accessTokenSecret")
+      )
     /*FIXME: Not avaible probabily because of old twitter4j version	.setTweetModeExtended(true) */
 
     val auth = new OAuthAuthorization(cb.build)
@@ -58,28 +60,35 @@ object TwitterPopularTags {
 
     val englishTweets = stream.filter(_.getLang() == "en")
     val data = englishTweets.flatMap(status => {
-        val text = if (status.isRetweeted) {
-          status.getRetweetedStatus.getText
-        } else {
-          status.getText
-        }
-        /* TODO: add filter for all special chars */
-        Array(text).filter(_ >= " ")
-      })
+      val text = if (status.isRetweeted) {
+        status.getRetweetedStatus.getText
+      } else {
+        status.getText
+      }
+      /* TODO: add filter for all special chars */
+      Array(
+        text
+          .split(" ")
+          .filter(s => !s.contains("http"))
+          .flatMap(_.replaceAll("[^A-Za-z]", " ").split(" "))
+          .filter(_.length > 1)
+          .mkString(" ")
+      )
+    })
 
     /* Store every tweet to a text file */
     data.saveAsTextFiles("hdfs://hadoop:9000/tweets")
 
     /* Print tweets */
     data.foreachRDD(rdd => {
-        var top = rdd.take(10)
-        println("\nTweets (%s total):".format(rdd.count()))
-        top.foreach{case (count) => println("%s".format(count))}
-        /* Collect at least on RDD with more then 20 tweets */
-        if (rdd.count > 20) {
-          ssc.stop(false)
-        }
-      })
+      var top = rdd.take(10)
+      println("\nTweets (%s total):".format(rdd.count()))
+      top.foreach { case (count) => println("%s".format(count)) }
+      /* Collect at least on RDD with more then 20 tweets */
+      if (rdd.count > 20) {
+        ssc.stop(false)
+      }
+    })
     ssc.start()
     /* TODO: use a timeout */
     /* Wait for stream to terminate */
@@ -91,14 +100,16 @@ object TwitterPopularTags {
 
     /* Calculate word frequency */
     val records = docs.map(doc => {
-        val wordArray = doc.split(" ")
-        /* reduceByKey for array */
-        val map = wordArray.map(word => (word.toLowerCase, 1))
+      val wordArray =
+        doc.replaceAll("[^A-Za-z]", " ").split(" ").filter(!_.isEmpty)
+      /* reduceByKey for array */
+      val map = wordArray
+        .map(word => (word.toLowerCase, 1))
         .groupBy(_._1)
-        .map(l => (l._1, l._2.map(_._2).reduce(_+_)))
-        .map({case (key, n) => (key, n.toDouble/wordArray.length)})
-        new Record(doc, map)
-      })
+        .map(l => (l._1, l._2.map(_._2).reduce(_ + _)))
+        .map({ case (key, n) => (key, n.toDouble / wordArray.length) })
+      new Record(doc, map)
+    })
     /* Print all records containing only tf (without idf) */
     for (a <- records.collect) {
       println("TF for each document: " + a.weighsVector)
@@ -106,17 +117,18 @@ object TwitterPopularTags {
 
     /* Calculate inverse document frequency */
     val docsSize = docs.count
-    val idf = records.flatMap(x => x.weighsVector.toList)
-    .map({case (key, _) => (key, 1.0)})
-    .reduceByKey(_ + _)
-    .map({case (key, n) => (key, Math.log10(docsSize.toDouble / n))})
+    val idf = records
+      .flatMap(x => x.weighsVector.toList)
+      .map({ case (key, _) => (key, 1.0) })
+      .reduceByKey(_ + _)
+      .map({ case (key, n) => (key, Math.log10(docsSize.toDouble / n)) })
 
     for (a <- idf.collect) {
       println("IDF for each Token: " + a)
     }
 
-    /* FIXME: don't use collect, but probably there isn't a better solution 
-    *  because collect moves all data back to the driver application */
+    /* FIXME: don't use collect, but probably there isn't a better solution
+     *  because collect moves all data back to the driver application */
     val table = idf.collect.toMap
     /* create vector for each document as a Map */
     records.foreach(m => m.apply_idf(table)) //calculate tfidf, for each value of map it is transformed into the new value
