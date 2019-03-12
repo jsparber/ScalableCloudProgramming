@@ -58,7 +58,7 @@ object TwitterPopularTags {
     val ssc = new StreamingContext(sc, Seconds(2))
     val stream = TwitterUtils.createStream(ssc, Some(auth), filters)
 
-    val englishTweets = stream.filter(_.getLang() == "en")
+    val englishTweets = stream.filter(x => x.getLang() == "en" && !x.isRetweet())
     val data = englishTweets.flatMap(status => {
       val text = if (status.isRetweeted) {
         status.getRetweetedStatus.getText
@@ -67,25 +67,22 @@ object TwitterPopularTags {
       }
       /* TODO: add filter for all special chars */
       Array(
-        text
-          .split(" ")
-          .filter(s => !s.contains("http"))
-          .flatMap(_.replaceAll("[^A-Za-z]", " ").split(" "))
-          .filter(_.length > 1)
-          .mkString(" ")
-      )
+        text.filter(_ >= ' ')
+              )
     })
 
     /* Store every tweet to a text file */
     data.saveAsTextFiles("hdfs://hadoop:9000/tweets")
 
+    var countTweet: Long = 0;
     /* Print tweets */
     data.foreachRDD(rdd => {
       var top = rdd.take(10)
       println("\nTweets (%s total):".format(rdd.count()))
       top.foreach { case (count) => println("%s".format(count)) }
       /* Collect at least on RDD with more then 20 tweets */
-      if (rdd.count > 20) {
+      countTweet += rdd.count
+      if (countTweet > 500) {
         ssc.stop(false)
       }
     })
@@ -100,15 +97,19 @@ object TwitterPopularTags {
 
     /* Calculate word frequency */
     val records = docs.map(doc => {
-      val wordArray =
-        doc.replaceAll("[^A-Za-z]", " ").split(" ").filter(!_.isEmpty)
+      val wordArray = doc.split(" ")
+          .filter(s => !s.contains("http"))
+          .flatMap(_.replaceAll("[^A-Za-z|^#]", " ").split(" "))
+          .filter(_.length > 1)
+      //  doc.replaceAll("[^A-Za-z]", " ").split(" ").filter(!_.isEmpty)
+
       /* reduceByKey for array */
       val map = wordArray
         .map(word => (word.toLowerCase, 1))
         .groupBy(_._1)
         .map(l => (l._1, l._2.map(_._2).reduce(_ + _)))
         .map({ case (key, n) => (key, n.toDouble / wordArray.length) })
-      new Record(doc, map)
+        new TweetTF(doc, map)
     })
     /* Print all records containing only tf (without idf) */
     for (a <- records.collect) {
@@ -131,11 +132,12 @@ object TwitterPopularTags {
      *  because collect moves all data back to the driver application */
     val table = idf.collect.toMap
     /* create vector for each document as a Map */
-    records.foreach(m => m.apply_idf(table)) //calculate tfidf, for each value of map it is transformed into the new value
-    for (a <- records.collect) {
+    val dbscan_records = records.map(m => new Record(m, table)) //calculate tfidf, for each value of map it is transformed into the new value
+    for (a <- dbscan_records.collect) {
       println("Vector for each document: " + a)
     }
 
+    SequentialDBSCAN.exec(dbscan_records)
     sparkSession.stop()
   }
 }
