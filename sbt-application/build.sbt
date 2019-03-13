@@ -8,14 +8,15 @@ scalaVersion := "2.11.8"
 
 scalacOptions := Seq("-unchecked", "-deprecation", "-encoding", "utf8")
 
+resolvers += "Apache Snapshots" at "https://repository.apache.org/content/repositories/snapshots/"
 libraryDependencies ++= {
-  val sparkV = "2.1.0"
+  val sparkV = "2.4.0"
 
   Seq(
     "org.apache.spark" %% "spark-core" % sparkV % "provided",
     "org.apache.spark" %% "spark-sql" % sparkV % "provided",
-    "org.apache.spark" % "spark-streaming_2.11" % sparkV,
-    "org.apache.bahir" %% "spark-streaming-twitter" % sparkV
+    "org.apache.spark" %% "spark-streaming" % sparkV,
+    "org.apache.bahir" %% "spark-streaming-twitter" % "2.4.0-SNAPSHOT"
   )
 }
 

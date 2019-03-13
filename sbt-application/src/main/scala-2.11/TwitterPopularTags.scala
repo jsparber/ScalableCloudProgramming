@@ -26,14 +26,10 @@ import twitter4j.conf.ConfigurationBuilder
 
 object TwitterPopularTags {
   def main(args: Array[String]) {
-    /* Set logging level if log4j not configured (override by adding log4j.properties to classpath)
+    /* Set logging level if log4j not configured (override by adding log4j.properties to classpath) */
     if (!Logger.getRootLogger.getAllAppenders.hasMoreElements) {
-      Logger.getRootLogger.setLevel(Level.OFF)
+      Logger.getRootLogger.setLevel(Level.WARN)
     }
-     */
-
-    /* Overwrite Log level */
-    Logger.getRootLogger.setLevel(Level.OFF)
 
     val sparkSession = SparkSession.builder
       .appName("TwitterPopularTags")
@@ -72,7 +68,7 @@ object TwitterPopularTags {
     })
 
     /* Store every tweet to a text file */
-    data.saveAsTextFiles("hdfs://hadoop:9000/tweets")
+    data.saveAsTextFiles("hdfs://localhost:8020/tweets");
 
     var countTweet: Long = 0;
     /* Print tweets */
@@ -82,7 +78,7 @@ object TwitterPopularTags {
       top.foreach { case (count) => println("%s".format(count)) }
       /* Collect at least on RDD with more then 20 tweets */
       countTweet += rdd.count
-      if (countTweet > 500) {
+      if (countTweet > 50) {
         ssc.stop(false)
       }
     })
@@ -91,7 +87,7 @@ object TwitterPopularTags {
     /* Wait for stream to terminate */
     ssc.awaitTermination()
 
-    val docs = sc.textFile("hdfs://hadoop:9000/tweets*")
+    val docs = sc.textFile("hdfs://localhost:8020/tweets*")
 
     println("Number of documents to analyze: " + docs.count)
 
