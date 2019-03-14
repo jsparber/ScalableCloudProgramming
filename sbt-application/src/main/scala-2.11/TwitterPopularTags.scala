@@ -54,7 +54,8 @@ object TwitterPopularTags {
     val ssc = new StreamingContext(sc, Seconds(2))
     val stream = TwitterUtils.createStream(ssc, Some(auth), filters)
 
-    val englishTweets = stream.filter(x => x.getLang() == "en" && !x.isRetweet())
+    val englishTweets =
+      stream.filter(x => x.getLang() == "en" && !x.isRetweet())
     val data = englishTweets.flatMap(status => {
       val text = if (status.isRetweeted) {
         status.getRetweetedStatus.getText
@@ -64,7 +65,7 @@ object TwitterPopularTags {
       /* TODO: add filter for all special chars */
       Array(
         text.filter(_ >= ' ')
-              )
+      )
     })
 
     /* Store every tweet to a text file */
@@ -93,10 +94,11 @@ object TwitterPopularTags {
 
     /* Calculate word frequency */
     val records = docs.map(doc => {
-      val wordArray = doc.split(" ")
-          .filter(s => !s.contains("http"))
-          .flatMap(_.replaceAll("[^A-Za-z|^#]", " ").split(" "))
-          .filter(_.length > 1)
+      val wordArray = doc
+        .split(" ")
+        .filter(s => !s.contains("http"))
+        .flatMap(_.replaceAll("[^A-Za-z|^#]", " ").split(" "))
+        .filter(_.length > 1)
       //  doc.replaceAll("[^A-Za-z]", " ").split(" ").filter(!_.isEmpty)
 
       /* reduceByKey for array */
@@ -105,7 +107,7 @@ object TwitterPopularTags {
         .groupBy(_._1)
         .map(l => (l._1, l._2.map(_._2).reduce(_ + _)))
         .map({ case (key, n) => (key, n.toDouble / wordArray.length) })
-        new TweetTF(doc, map)
+      new TweetTF(doc, map)
     })
     /* Print all records containing only tf (without idf) */
     for (a <- records.collect) {
