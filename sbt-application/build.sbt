@@ -15,6 +15,7 @@ libraryDependencies ++= {
   Seq(
     "org.apache.spark" %% "spark-core" % sparkV % "provided",
     "org.apache.spark" %% "spark-sql" % sparkV % "provided",
+    "org.apache.spark" %% "spark-graphx" % sparkV,
     "org.apache.spark" %% "spark-streaming" % sparkV,
     "org.apache.bahir" %% "spark-streaming-twitter" % "2.4.0-SNAPSHOT"
   )

@@ -30,65 +30,15 @@ object TwitterPopularTags {
     if (!Logger.getRootLogger.getAllAppenders.hasMoreElements) {
       Logger.getRootLogger.setLevel(Level.WARN)
     }
+      Logger.getRootLogger.setLevel(Level.OFF)
 
     val sparkSession = SparkSession.builder
       .appName("TwitterPopularTags")
       .getOrCreate()
 
     val sc = sparkSession.sparkContext
-    val cb = new ConfigurationBuilder
 
-    cb.setDebugEnabled(true)
-      .setOAuthConsumerKey(sc.getConf.get("spark.twitter.consumerKey"))
-      .setOAuthConsumerSecret(sc.getConf.get("spark.twitter.consumerSecret"))
-      .setOAuthAccessToken(sc.getConf.get("spark.twitter.accessToken"))
-      .setOAuthAccessTokenSecret(
-        sc.getConf.get("spark.twitter.accessTokenSecret")
-      )
-    /*FIXME: Not avaible probabily because of old twitter4j version	.setTweetModeExtended(true) */
-
-    val auth = new OAuthAuthorization(cb.build)
-
-    /* Twitter filter */
-    val filters = Array[String]()
-    val ssc = new StreamingContext(sc, Seconds(2))
-    val stream = TwitterUtils.createStream(ssc, Some(auth), filters)
-
-    val englishTweets =
-      stream.filter(x => x.getLang() == "en" && !x.isRetweet())
-    val data = englishTweets.flatMap(status => {
-      val text = if (status.isRetweeted) {
-        status.getRetweetedStatus.getText
-      } else {
-        status.getText
-      }
-      /* TODO: add filter for all special chars */
-      Array(
-        text.filter(_ >= ' ')
-      )
-    })
-
-    /* Store every tweet to a text file */
-    data.saveAsTextFiles("hdfs://localhost:8020/tweets");
-
-    var countTweet: Long = 0;
-    /* Print tweets */
-    data.foreachRDD(rdd => {
-      var top = rdd.take(10)
-      println("\nTweets (%s total):".format(rdd.count()))
-      top.foreach { case (count) => println("%s".format(count)) }
-      /* Collect at least on RDD with more then 20 tweets */
-      countTweet += rdd.count
-      if (countTweet > 50) {
-        ssc.stop(false)
-      }
-    })
-    ssc.start()
-    /* TODO: use a timeout */
-    /* Wait for stream to terminate */
-    ssc.awaitTermination()
-
-    val docs = sc.textFile("hdfs://localhost:8020/tweets*")
+    val docs = sc.textFile("tweets*")
 
     println("Number of documents to analyze: " + docs.count)
 
@@ -135,7 +85,8 @@ object TwitterPopularTags {
       println("Vector for each document: " + a)
     }
 
-    SequentialDBSCAN.exec(dbscan_records)
+    //SequentialDBSCAN.exec(dbscan_records)
+    ngDBSCAN.exec(sc, dbscan_records)
     sparkSession.stop()
   }
 }
