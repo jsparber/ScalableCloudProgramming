@@ -1,6 +1,6 @@
 object State extends Enumeration {
   type State = Value
-  val Visited, Unvisited, Noise, ClusterMember = Value
+  val Border, Core, Noise, Seed, None = Value
 }
 
 import State._
@@ -10,7 +10,7 @@ import scala.collection.immutable
 class Record(val doc: TweetTF, idf: Map[String, Double]) extends Serializable {
   val tweet: String = doc.doc
   val weighsVector = doc.apply_idf(idf)
-  var state: State = Unvisited
+  var state: State = None
   var neighbors: Set[Record] = Set()
 
   override def toString: String = this.tweet + "\n" + this.weighsVector

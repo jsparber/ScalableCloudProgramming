@@ -6,7 +6,7 @@ import scala.util.Random
 import State._
 
 object ngDBSCAN {
-  val eps = 0.05
+  val eps = 0.15
   val minPts = 3
   val k = 2 //should be 5
   // p limits the number of comparisons in extreme cases during Phase 1
@@ -47,8 +47,13 @@ object ngDBSCAN {
       val neighbors = nGraph.collectNeighbors(EdgeDirection.Out)
       val xEdges = neighbors
         .flatMap(n1 => {
-          n1._2.flatMap(n2 => n1._2.map(n3 => Edge(n3._1, n2._1, calculateDistance(n3._2, n2._2))))
-        }).filter(x => x.srcId != x.dstId)
+          n1._2.flatMap(
+            n2 =>
+              n1._2
+                .map(n3 => Edge(n3._1, n2._1, calculateDistance(n3._2, n2._2)))
+          )
+        })
+        .filter(x => x.srcId != x.dstId)
         .distinct()
       nGraph = Graph(nGraph.vertices, (nGraph.edges ++ xEdges).distinct())
       // update epsGraph
@@ -59,7 +64,8 @@ object ngDBSCAN {
       val nodesToRemove = epsGraph
         .collectNeighborIds(EdgeDirection.Either)
         .filter(x => x._2.length >= Mmax)
-        .map(_._1).distinct()
+        .map(_._1)
+        .distinct()
         .collect
 
       //FIXME: we propabily should filter edges as well
@@ -73,6 +79,7 @@ object ngDBSCAN {
               .contains(e.dstId))
         )
       )
+      println("With filter" + nGraph.edges.count)
       val delta = numberOfNodes - nGraph.vertices.count
       // the paper uses a AND insteat of OR but it seams wrong
       terminate = (nGraph.vertices.count < TN * docsCount && delta < TR * docsCount) || nGraph.vertices.count <= 0
@@ -89,11 +96,39 @@ object ngDBSCAN {
     }
 
     println("Terminated")
-    println(epsGraph.edges.count)
-    epsGraph.vertices.foreach(x => println(x._1 + " " + x._2))
-    epsGraph.edges.foreach(x => println(x))
+    //println(epsGraph.edges.count)
+    //epsGraph.vertices.foreach(x => println(x._1 + " " + x._2))
+    //epsGraph.edges.foreach(x => println(x.attr))
+    //println(toGexf(epsGraph))
 
     //Phase 2
+    println("Phase 2");
+    val coresDegrees = epsGraph.degrees.filter(x => x._2 >= minPts)
+    println(epsGraph.degrees.max()._2)
+    val coreGraph = epsGraph.joinVertices(coresDegrees)((_, rec, _) => {
+      rec.state = Core; rec
+    })
+    val borderness = coreGraph
+      .collectNeighbors(EdgeDirection.Out)
+      .map({
+        case (vid, a) => (vid, a.map(_._2.state == Core).fold(false)(_ || _))
+      })
+    val gGraph = coreGraph.joinVertices(borderness)((_, rec, arg) => {
+      if (arg && rec.state != Core)
+        rec.state = Border
+      rec
+    })
+    println("Number of nodes" + gGraph.vertices.count())
+    println(
+      "Number of core nodes" + gGraph.vertices
+        .filter(x => x._2.state == Core)
+        .count
+    )
+    println(
+      "Number of border nodes" + gGraph.vertices
+        .filter(x => x._2.state == Border)
+        .count
+    )
   }
 
   def calculateDistance(record1: Record, record2: Record): Double = {
@@ -104,6 +139,38 @@ object ngDBSCAN {
     return CosineSimilarity.cosineSimilarity(first, second)
   }
 
+  def toGexf[VD, ED](g: Graph[VD, ED]): String = {
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+      "<gexf xmlns=\"http://www.gexf.net/1.2draft\" version=\"1.2\">\n" +
+      "  <graph mode=\"static\" defaultedgetype=\"directed\">\n" +
+      "    <nodes>\n" +
+      g.vertices
+        .map(
+          v =>
+            "      <node id=\"" + v._1 + "\" label=\"" +
+              v._2
+                .asInstanceOf[Record]
+                .tweet
+                .replaceAll("\"", "")
+                .replaceAll("&", "") + "\" />\n"
+        )
+        .collect
+        .mkString +
+      "    </nodes>\n" +
+      "    <edges>\n" +
+      g.edges
+        .map(
+          e =>
+            "      <edge source=\"" + e.srcId +
+              "\" target=\"" + e.dstId + "\" weight=\"" + e.attr +
+              "\" />\n"
+        )
+        .collect
+        .mkString +
+      "    </edges>\n" +
+      "  </graph>\n" +
+      "</gexf>"
+  }
   /*
   def maxCoreNode (neighs: mutable.Set[Record]): Record = {
     var max = 0
