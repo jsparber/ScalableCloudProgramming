@@ -30,7 +30,7 @@ object TwitterPopularTags {
     if (!Logger.getRootLogger.getAllAppenders.hasMoreElements) {
       Logger.getRootLogger.setLevel(Level.WARN)
     }
-      Logger.getRootLogger.setLevel(Level.OFF)
+    Logger.getRootLogger.setLevel(Level.OFF)
 
     val sparkSession = SparkSession.builder
       .appName("TwitterPopularTags")
