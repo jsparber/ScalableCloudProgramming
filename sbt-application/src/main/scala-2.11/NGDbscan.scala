@@ -113,11 +113,19 @@ object ngDBSCAN {
       .map({
         case (vid, a) => (vid, a.map(_._2.state == Core).fold(false)(_ || _))
       })
-    val gGraph = coreGraph.joinVertices(borderness)((_, rec, arg) => {
+    val gGraphWithNoise = coreGraph.joinVertices(borderness)((_, rec, arg) => {
       if (arg && rec.state != Core)
         rec.state = Border
       rec
     })
+
+  // Filter noise
+  var gGraph = Graph(gGraphWithNoise.vertices.filter(n => n._2.state == Core || n._2.state == Border), gGraphWithNoise.edges)
+  var tGraph = Graph(gGraph.vertices, emptyEdges)
+  val emptyVertex : org.apache.spark.rdd.RDD[(org.apache.spark.graphx.VertexId, Record)] = sc.parallelize(Seq())
+  while(gGraph.vertices.count > 0) {
+    var hGraph = Graph(emptyVertex, emptyEdges)
+  }
     println("Number of nodes" + gGraph.vertices.count())
     println(
       "Number of core nodes" + gGraph.vertices
