@@ -19,7 +19,7 @@ object ngDBSCAN {
     //PHASE 1
     /* We could use also zipWithIndex() */
     val docsCount = records.count
-    val nodes = records.zipWithUniqueId().map(_.swap);
+    val nodes = records.zipWithUniqueId().map(_.swap)
     val emptyEdges
         : org.apache.spark.rdd.RDD[org.apache.spark.graphx.Edge[Double]] =
       sc.parallelize(Seq())
@@ -119,13 +119,12 @@ object ngDBSCAN {
       rec
     })
 
-  // Filter noise
-  var gGraph = Graph(gGraphWithNoise.vertices.filter(n => n._2.state == Core || n._2.state == Border), gGraphWithNoise.edges)
-  var tGraph = Graph(gGraph.vertices, emptyEdges)
-  val emptyVertex : org.apache.spark.rdd.RDD[(org.apache.spark.graphx.VertexId, Record)] = sc.parallelize(Seq())
-  while(gGraph.vertices.count > 0) {
-    var hGraph = Graph(emptyVertex, emptyEdges)
-  }
+    // Filter noise
+    var gGraph = Graph(
+      gGraphWithNoise.vertices
+        .filter(n => n._2.state == Core || n._2.state == Border),
+      gGraphWithNoise.edges
+    )
     println("Number of nodes" + gGraph.vertices.count())
     println(
       "Number of core nodes" + gGraph.vertices
@@ -137,6 +136,127 @@ object ngDBSCAN {
         .filter(x => x._2.state == Border)
         .count
     )
+    var tGraph
+        : Graph[Record, Double] = Graph(gGraph.vertices, null) //temporaneo
+    //probabilmente in tutte le strutture dati non ha senso mettere il vero valore della distanza
+    while (gGraph.vertices.count() > 0) {
+
+      //Max selection step
+
+      //i nodi dell'Hgrafo sono gli stessi del Ggrafo
+      var hGraph: Graph[Record, Double] = Graph(gGraph.vertices, null)
+      var huh: Int = hGraph.co
+      gGraph.vertices.map(
+        x =>
+          x._2.mostCorenessNeighbor = maxCoreNode(
+            sc.parallelize(
+                gGraph
+                  .collectNeighbors(EdgeDirection.Out)
+                  .filter(y => y._1 == x._1)
+                  .first()
+                  ._2
+              )
+              .union(sc.parallelize(Seq(x))),
+            gGraph
+          )
+      )
+      gGraph.vertices.foreach(
+        x =>
+          if (x._2.state != Core) {
+            hGraph.edges ++= EdgeRDD(
+              x._1,
+              x._2.mostCorenessNeighbor._1,
+              calculateDistance(x._2, x._2.mostCorenessNeighbor._2)
+            )
+            hGraph.edges ++= EdgeRDD(
+              x._2.mostCorenessNeighbor._1,
+              x._2.mostCorenessNeighbor._1,
+              1
+            )
+          } else {
+            sc.parallelize(
+                gGraph
+                  .collectNeighbors(EdgeDirection.Out)
+                  .filter(y => y._1 == x._1)
+                  .first()
+                  ._2
+              )
+              .union(sc.parallelize(Seq(x)))
+              .foreach(
+                z =>
+                  hGraph.edges ++= EdgeRDD(
+                    z._1,
+                    x._2.mostCorenessNeighbor._1,
+                    calculateDistance(z._2, x._2)
+                  )
+              )
+          }
+      )
+      //Pruning step
+      gGraph = Graph(gGraph.vertices, null)
+      hGraph.vertices.map(
+        x =>
+          x._2.mostCorenessNeighbor = maxCoreNode(
+            sc.parallelize(
+              hGraph
+                .collectNeighbors(EdgeDirection.Out)
+                .filter(y => y._1 == x._1)
+                .first()
+                ._2
+            ),
+            hGraph
+          )
+      )
+      hGraph.vertices.foreach(
+        x =>
+          if (x != Core) {
+            //disattivare x
+            tGraph.edges ++= EdgeRDD(
+              x._2.mostCorenessNeighbor._1,
+              x._1,
+              calculateDistance(x._2.mostCorenessNeighbor._2, x._2)
+            )
+          } else {
+            if (hGraph.vertices.count() > 1) {
+              sc.parallelize(
+                  gGraph
+                    .collectNeighbors(EdgeDirection.Out)
+                    .filter(y => y._1 == x._1)
+                    .first()
+                    ._2
+                )
+                .subtract(sc.parallelize(Seq(x._2.mostCorenessNeighbor)))
+                .foreach { z =>
+                  gGraph.edges ++= EdgeRDD(
+                    z._1,
+                    x._2.mostCorenessNeighbor._1,
+                    calculateDistance(z._2, x._2.mostCorenessNeighbor._2)
+                  )
+                  gGraph.edges ++= EdgeRDD(
+                    x._2.mostCorenessNeighbor._1,
+                    z._1,
+                    calculateDistance(x._2.mostCorenessNeighbor._2, z._2)
+                  )
+                }
+
+            }
+            if (hGraph
+                  .collectNeighbors(EdgeDirection.Out)
+                  .filter(y => y._1 == x._1)
+                  .first()
+                  ._2
+                  .contains(x._1)) {
+              tGraph.edges ++= EdgeRDD(
+                x._2.mostCorenessNeighbor._1,
+                x._1,
+                calculateDistance(x._2.mostCorenessNeighbor._2, x._2)
+              )
+              //disattivare x
+              //if isSeed (x) {disattivare x}
+            }
+          }
+      )
+    }
   }
 
   def calculateDistance(record1: Record, record2: Record): Double = {
@@ -179,12 +299,13 @@ object ngDBSCAN {
       "  </graph>\n" +
       "</gexf>"
   }
-  /*
-  def maxCoreNode (neighs: mutable.Set[Record]): Record = {
-    var max = 0
-    var ret: Record = neighs.toVector(0) //inizializzato con un valore a  caso
-    neighs.foreach(x => if (x.epsNeighbors.size > max){ ret = x; max = x.epsNeighbors.size})
-    return ret
+  def maxCoreNode(
+      nodes: RDD[(VertexId, Record)],
+      g: Graph[Record, Double]
+  ): (VertexId, Record) = {
+    val temp = Graph(nodes, g.edges)
+    val maxValue = temp.degrees.max()(Ordering[Int].on(_._2))._1
+    val ret = temp.vertices.filter(x => x._1 == maxValue)
+    ret.first()
   }
- */
 }
