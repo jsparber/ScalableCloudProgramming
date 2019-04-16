@@ -3,6 +3,7 @@ import org.apache.spark.rdd.RDD
 import scala.collection.mutable
 import org.apache.spark.graphx.{VertexRDD, EdgeDirection, Edge, Graph}
 import scala.util.Random
+import org.apache.spark.graphx.VertexId
 import State._
 
 object ngDBSCAN {
@@ -142,29 +143,48 @@ object ngDBSCAN {
     while (gGraph.vertices.count() > 0) {
 
       //Max selection step
+      // Create a graph where the attribute is a degree of a vertex
+      val graphWithDegrees = gGraph.outerJoinVertices(gGraph.degrees) { (_, _, optDegree) =>
+        optDegree.getOrElse(1)    
+     }
 
-      //i nodi dell'Hgrafo sono gli stessi del Ggrafo
-      var hGraph: Graph[Record, Double] = Graph(gGraph.vertices, null)
-      var huh: Int = hGraph.co
-      gGraph.vertices.map(
-        x =>
-          x._2.mostCorenessNeighbor = maxCoreNode(
-            sc.parallelize(
-                gGraph
-                  .collectNeighbors(EdgeDirection.Out)
-                  .filter(y => y._1 == x._1)
-                  .first()
-                  ._2
-              )
-              .union(sc.parallelize(Seq(x))),
-            gGraph
-          )
+      // Each vertex sends its degree to its neighbours
+      // and we aggregate them in a set where each vertex gets all values
+      // of its neighbours and store the node with a higher degree
+      // returns a RDD[(VertexId, Int)]
+      val maxCoreNeighbours = graphWithDegrees.aggregateMessages[(VertexId, Int)](
+        sendMsg = triplet => {
+          val srcDegree = (triplet.srcId, triplet.srcAttr)
+          val dstDegree = (triplet.dstId, triplet.dstAttr)
+          triplet.sendToDst(srcDegree)
+          triplet.sendToSrc(dstDegree)
+        },
+        mergeMsg = (x, y) => if (x._2 > y._2) x else y
       )
-      gGraph.vertices.foreach(
-        x =>
-          if (x._2.state != Core) {
-            hGraph.edges ++= EdgeRDD(
-              x._1,
+
+    // Consider the node itself as possible maxCoreNode
+    val maxCoreNode = maxCoreNeighbours.innerJoin(graphWithDegrees.vertices)((vid, nDegree, myDegree) => {
+        if (nDegree._2 > myDegree)
+          nDegree._1
+        else
+          vid
+      })
+
+    // if you want it in the original graph you can do
+    // outerJoinVertices again, and now the attr of vertex 
+    // in the graph is avg of its neighbours
+    gGraph.outerJoinVertices(maxCoreNode) { (_, _, optMaxDegree) =>
+    optMaxDegree.getOrElse(1)
+  }
+
+  //hGraph
+
+  /*
+  gGraph.vertices.foreach(
+    x =>
+    if (x._2.state != Core) {
+    hGraph.edges ++= EdgeRDD(
+      x._1,
               x._2.mostCorenessNeighbor._1,
               calculateDistance(x._2, x._2.mostCorenessNeighbor._2)
             )
@@ -211,7 +231,7 @@ object ngDBSCAN {
         x =>
           if (x != Core) {
             //disattivare x
-            tGraph.edges ++= EdgeRDD(
+            tGraph = Graph(tGraph.vertices, tGraph.edges ++ EdgeRDD(
               x._2.mostCorenessNeighbor._1,
               x._1,
               calculateDistance(x._2.mostCorenessNeighbor._2, x._2)
@@ -256,6 +276,7 @@ object ngDBSCAN {
             }
           }
       )
+    */
     }
   }
 
