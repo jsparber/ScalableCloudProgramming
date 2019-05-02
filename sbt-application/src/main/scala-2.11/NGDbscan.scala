@@ -139,7 +139,7 @@ object ngDBSCAN {
     .count
   )
     var tGraph
-    : Graph[Record, Double] = Graph(gGraph.vertices, null) //temporaneo
+    : Graph[Record, Double] = Graph(gGraph.vertices, emptyEdges) //temporaneo
     //probabilmente in tutte le strutture dati non ha senso mettere il vero valore della distanza
     while (gGraph.vertices.filter({case (n, record) =>
       record.active
