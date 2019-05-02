@@ -145,7 +145,7 @@ object ngDBSCAN {
     //Max selection step
     val maxCoreNodeGGraph = calcMaxCoreNodes(gGraph, true)
 
-    val hGraphEdges = maxCoreNodeGGraph.vertices.flatMap({ case (n, record) => 
+    val hGraphEdges = maxCoreNodeGGraph.vertices.flatMap({ case (n, record) =>
       val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
       if (record != Core)
         Array(Edge(n, nmax, 1.0),
@@ -156,9 +156,9 @@ object ngDBSCAN {
 
     val hGraph = Graph(gGraph.vertices, hGraphEdges)
 
-      //Pruning step
+    //Pruning step
     val maxCoreNodeHGraph = calcMaxCoreNodes(hGraph, false)
-    val tGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) => 
+    val tGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) =>
       val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
       if (record != Core)
         Array(Edge(nmax, n, 1.0))
@@ -170,9 +170,7 @@ object ngDBSCAN {
         }
       })
 
-    tGraph = Graph(gGraph.vertices, hGraphEdges)
-
-    //TODO: build tGraph
+    tGraph = Graph(gGraph.vertices, tGraph.edges ++ tGraphEdges)
 
     val gGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) => 
       val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
@@ -185,89 +183,27 @@ object ngDBSCAN {
             Array[Edge[Double]]()
       })
 
-      //TODO: build gGraph
-
-      val updateVertexs = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) => 
-      val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
-      if (record != Core)
-        record.active = false
-      else {
-        if (record.maxCoreNodes.exists(x => x._1 != n))
+    val updateVertexs = maxCoreNodeHGraph.vertices.map({ case (n, record) => 
+        val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
+        if (record != Core)
           record.active = false
-        if (IsSeed(n))
-          record.active = false
+        else {
+          if (record.maxCoreNodes.exists(x => x._1 != n))
+            record.active = false
+          if (IsSeed(n))
+            record.active = false
         }
-        record
+        (n,  record)
       })
 
-    // Build update gGraph
+      // Build updated gGraph
+      gGraph = Graph(updateVertexs, gGraphEdges)
 
-  /*
-      gGraph = Graph(gGraph.vertices, null)
-      hGraph.vertices.map(
-        x =>
-          x._2.mostCorenessNeighbor = maxCoreNode(
-            sc.parallelize(
-              hGraph
-                .collectNeighbors(EdgeDirection.Out)
-                .filter(y => y._1 == x._1)
-                .first()
-                ._2
-            ),
-            hGraph
-          )
-      )
-      hGraph.vertices.foreach(
-        x =>
-          if (x != Core) {
-            //disattivare x
-            tGraph = Graph(tGraph.vertices, tGraph.edges ++ EdgeRDD(
-              x._2.mostCorenessNeighbor._1,
-              x._1,
-              calculateDistance(x._2.mostCorenessNeighbor._2, x._2)
-            )
-          } else {
-            if (hGraph.vertices.count() > 1) {
-              sc.parallelize(
-                  gGraph
-                    .collectNeighbors(EdgeDirection.Out)
-                    .filter(y => y._1 == x._1)
-                    .first()
-                    ._2
-                )
-                .subtract(sc.parallelize(Seq(x._2.mostCorenessNeighbor)))
-                .foreach { z =>
-                  gGraph.edges ++= EdgeRDD(
-                    z._1,
-                    x._2.mostCorenessNeighbor._1,
-                    calculateDistance(z._2, x._2.mostCorenessNeighbor._2)
-                  )
-                  gGraph.edges ++= EdgeRDD(
-                    x._2.mostCorenessNeighbor._1,
-                    z._1,
-                    calculateDistance(x._2.mostCorenessNeighbor._2, z._2)
-                  )
-                }
-
-            }
-            if (hGraph
-                  .collectNeighbors(EdgeDirection.Out)
-                  .filter(y => y._1 == x._1)
-                  .first()
-                  ._2
-                  .contains(x._1)) {
-              tGraph.edges ++= EdgeRDD(
-                x._2.mostCorenessNeighbor._1,
-                x._1,
-                calculateDistance(x._2.mostCorenessNeighbor._2, x._2)
-              )
-              //disattivare x
-              //if isSeed (x) {disattivare x}
-            }
-          }
-      )
-    */
     }
+  }
+
+  def IsSeed(n: Long) : Boolean = {
+    false
   }
 
   def calculateDistance(record1: Record, record2: Record): Double = {
