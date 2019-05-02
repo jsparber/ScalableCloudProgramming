@@ -284,7 +284,7 @@ object ngDBSCAN {
 
     // update record
     val maxCoreNodeGraph = gGraph.outerJoinVertices(maxCoreNode) { (_, rec, optMaxDegree) =>
-    rec.maxCoreNodes = optMaxDegree.getOrElse(Array[(VertexId, Int)]()).asInstanceOf[Array[(VertexId, Int)]];
+    rec.maxCoreNodes = optMaxDegree.getOrElse(List())
       rec
     }
     maxCoreNodeGraph

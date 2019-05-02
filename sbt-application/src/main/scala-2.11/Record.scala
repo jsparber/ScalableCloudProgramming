@@ -12,7 +12,7 @@ class Record(val doc: TweetTF, idf: Map[String, Double]) extends Serializable {
   val weighsVector = doc.apply_idf(idf)
   var state: State = None
   var neighbors: Set[Record] = Set()
-  var maxCoreNodes: Array[(Long, Int)] = Array()
+  var maxCoreNodes: List[(Long, Int)] = List()
   var active: Boolean = true
 
   override def toString: String = this.tweet + "\n" + this.weighsVector
