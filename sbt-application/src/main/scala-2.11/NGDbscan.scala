@@ -121,26 +121,29 @@ object ngDBSCAN {
     })
 
     // Filter noise
-    var gGraph = Graph(
-      gGraphWithNoise.vertices
-        .filter(n => n._2.state == Core || n._2.state == Border),
-      gGraphWithNoise.edges
+    var gGraph = gGraphWithNoise.filter(
+      graph => {
+        graph.mapVertices((vid, n) => n.state == Core || n.state == Border)
+      },
+      vpred = (vid: VertexId, n:Boolean) => n
     )
-    println("Number of nodes" + gGraph.vertices.count())
-    println(
-      "Number of core nodes" + gGraph.vertices
-        .filter(x => x._2.state == Core)
-        .count
-    )
-    println(
-      "Number of border nodes" + gGraph.vertices
-        .filter(x => x._2.state == Border)
-        .count
-    )
+  println("Number of nodes" + gGraph.vertices.count())
+  println(
+    "Number of core nodes" + gGraph.vertices
+    .filter(x => x._2.state == Core)
+    .count
+  )
+  println(
+    "Number of border nodes" + gGraph.vertices
+    .filter(x => x._2.state == Border)
+    .count
+  )
     var tGraph
-        : Graph[Record, Double] = Graph(gGraph.vertices, null) //temporaneo
+    : Graph[Record, Double] = Graph(gGraph.vertices, null) //temporaneo
     //probabilmente in tutte le strutture dati non ha senso mettere il vero valore della distanza
-    while (gGraph.vertices.count() > 0) {
+    while (gGraph.vertices.filter({case (n, record) =>
+      record.active
+    }).count() > 0) {
 
     //Max selection step
     val maxCoreNodeGGraph = calcMaxCoreNodes(gGraph, true)
@@ -172,7 +175,7 @@ object ngDBSCAN {
 
     tGraph = Graph(gGraph.vertices, tGraph.edges ++ tGraphEdges)
 
-    val gGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) => 
+    val gGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) =>
       val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
       if (record != Core)
           Array[Edge[Double]]()
@@ -183,7 +186,7 @@ object ngDBSCAN {
             Array[Edge[Double]]()
       })
 
-    val updateVertexs = maxCoreNodeHGraph.vertices.map({ case (n, record) => 
+    val updateVertexs = maxCoreNodeHGraph.vertices.map({ case (n, record) =>
         val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
         if (record != Core)
           record.active = false
