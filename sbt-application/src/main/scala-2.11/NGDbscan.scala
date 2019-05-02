@@ -142,50 +142,67 @@ object ngDBSCAN {
     //probabilmente in tutte le strutture dati non ha senso mettere il vero valore della distanza
     while (gGraph.vertices.count() > 0) {
 
-      //Max selection step
-      // Create a graph where the attribute is a degree of a vertex
-      val graphWithDegrees = gGraph.outerJoinVertices(gGraph.degrees) { (_, _, optDegree) =>
-        optDegree.getOrElse(0)
-     }
+    //Max selection step
+    val maxCoreNodeGGraph = calcMaxCoreNodes(gGraph, true)
 
-      // Each vertex sends its degree to its neighbours
-      // and we aggregate them in a set where each vertex gets all values
-      // of its neighbours and store the node with a higher degree
-      // returns a RDD[(VertexId, Int)]
-      val maxCoreNeighbours = graphWithDegrees.aggregateMessages[List[(VertexId, Int)]](
-        sendMsg = triplet => {
-          val srcDegree = List((triplet.srcId, triplet.srcAttr))
-          val dstDegree = List((triplet.dstId, triplet.dstAttr))
-          triplet.sendToDst(srcDegree)
-          triplet.sendToSrc(dstDegree)
-        },
-        mergeMsg = (x, y) => x ++ y
-      )
-
-    // Consider the node itself as possible maxCoreNode
-    val maxCoreNode = maxCoreNeighbours.innerJoin(graphWithDegrees.vertices)((vid, nDegreeList, myDegree) => {
-        ((vid, myDegree)::nDegreeList).distinct
-      })
-
-    // update record
-    val maxCoreNodeGraph = gGraph.outerJoinVertices(maxCoreNode) { (_, rec, optMaxDegree) =>
-    rec.maxCoreNodes = optMaxDegree.getOrElse(Array[(VertexId, Int)]()).asInstanceOf[Array[(VertexId, Int)]];
-      rec
-    }
-
-    val hGraphEdges = maxCoreNodeGraph.vertices.flatMap({ case (n, record) => 
+    val hGraphEdges = maxCoreNodeGGraph.vertices.flatMap({ case (n, record) => 
       val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
       if (record != Core)
-        Array(Edge(n, nmax, 1),
-      Edge(nmax, nmax, 1))
+        Array(Edge(n, nmax, 1.0),
+      Edge(nmax, nmax, 1.0))
       else
-        record.maxCoreNodes.map(v => Edge(v._1, nmax, 1))
+        record.maxCoreNodes.map(v => Edge(v._1, nmax, 1.0))
       })
 
     val hGraph = Graph(gGraph.vertices, hGraphEdges)
 
-  /*
       //Pruning step
+    val maxCoreNodeHGraph = calcMaxCoreNodes(hGraph, false)
+    val tGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) => 
+      val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
+      if (record != Core)
+        Array(Edge(nmax, n, 1.0))
+      else {
+        if (record.maxCoreNodes.exists(x => x._1 != n))
+          Array(Edge(nmax, n, 1.0))
+          else 
+            Array[Edge[Double]]()
+        }
+      })
+
+    tGraph = Graph(gGraph.vertices, hGraphEdges)
+
+    //TODO: build tGraph
+
+    val gGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) => 
+      val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
+      if (record != Core)
+          Array[Edge[Double]]()
+      else
+        if (record.maxCoreNodes.length > 1)
+        record.maxCoreNodes.filter(_._1 != nmax).flatMap(v => Array(Edge(v._1, nmax, 1.0), Edge(v._1, nmax, 1.0)))
+          else 
+            Array[Edge[Double]]()
+      })
+
+      //TODO: build gGraph
+
+      val updateVertexs = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) => 
+      val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
+      if (record != Core)
+        record.active = false
+      else {
+        if (record.maxCoreNodes.exists(x => x._1 != n))
+          record.active = false
+        if (IsSeed(n))
+          record.active = false
+        }
+        record
+      })
+
+    // Build update gGraph
+
+  /*
       gGraph = Graph(gGraph.vertices, null)
       hGraph.vertices.map(
         x =>
@@ -293,13 +310,44 @@ object ngDBSCAN {
       "  </graph>\n" +
       "</gexf>"
   }
-  def maxCoreNode(
-      nodes: RDD[(VertexId, Record)],
-      g: Graph[Record, Double]
-  ): (VertexId, Record) = {
-    val temp = Graph(nodes, g.edges)
-    val maxValue = temp.degrees.max()(Ordering[Int].on(_._2))._1
-    val ret = temp.vertices.filter(x => x._1 == maxValue)
-    ret.first()
+  def calcMaxCoreNodes(
+    gGraph: Graph[Record, Double],
+    include_self: Boolean
+  ): Graph[Record, Double] = {
+      //Max selection step
+      // Create a graph where the attribute is a degree of a vertex
+      val graphWithDegrees = gGraph.outerJoinVertices(gGraph.degrees) { (_, _, optDegree) =>
+        optDegree.getOrElse(0)
+     }
+
+      // Each vertex sends its degree to its neighbours
+      // and we aggregate them in a set where each vertex gets all values
+      // of its neighbours and store the node with a higher degree
+      // returns a RDD[(VertexId, Int)]
+      val maxCoreNeighbours = graphWithDegrees.aggregateMessages[List[(VertexId, Int)]](
+        sendMsg = triplet => {
+          val srcDegree = List((triplet.srcId, triplet.srcAttr))
+          val dstDegree = List((triplet.dstId, triplet.dstAttr))
+          triplet.sendToDst(srcDegree)
+          triplet.sendToSrc(dstDegree)
+        },
+        mergeMsg = (x, y) => x ++ y
+      )
+
+    // Consider the node itself as possible maxCoreNode
+    val maxCoreNode = if (include_self) {
+      maxCoreNeighbours.innerJoin(graphWithDegrees.vertices)((vid, nDegreeList, myDegree) => {
+        ((vid, myDegree)::nDegreeList).distinct
+      })
+    } else {
+      maxCoreNeighbours.mapValues(_.distinct)
+    }
+
+    // update record
+    val maxCoreNodeGraph = gGraph.outerJoinVertices(maxCoreNode) { (_, rec, optMaxDegree) =>
+    rec.maxCoreNodes = optMaxDegree.getOrElse(Array[(VertexId, Int)]()).asInstanceOf[Array[(VertexId, Int)]];
+      rec
+    }
+    maxCoreNodeGraph
   }
 }
