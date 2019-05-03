@@ -139,31 +139,35 @@ object ngDBSCAN {
     .count
   )
     var tGraph
-    : Graph[Record, Double] = Graph(gGraph.vertices, emptyEdges) //temporaneo
+    : Graph[Record, Double] = Graph(gGraph.vertices, emptyEdges)
     //probabilmente in tutte le strutture dati non ha senso mettere il vero valore della distanza
+    
     while (gGraph.vertices.filter({case (n, record) =>
       record.active
     }).count() > 0) {
+    println("Remainging nodes in gGraph:" + gGraph.vertices.filter({case (n, record) =>
+    record.active}).count)
 
     //Max selection step
     val maxCoreNodeGGraph = calcMaxCoreNodes(gGraph, true)
 
     val hGraphEdges = maxCoreNodeGGraph.vertices.flatMap({ case (n, record) =>
       val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
-      if (record != Core)
+      if (record.state != Core)
         Array(Edge(n, nmax, 1.0),
       Edge(nmax, nmax, 1.0))
       else
         record.maxCoreNodes.map(v => Edge(v._1, nmax, 1.0))
       })
 
+    println("Numver hGrahpEdges: " + hGraphEdges.count)
     val hGraph = Graph(gGraph.vertices, hGraphEdges)
 
     //Pruning step
     val maxCoreNodeHGraph = calcMaxCoreNodes(hGraph, false)
     val tGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) =>
       val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
-      if (record != Core)
+      if (record.state != Core)
         Array(Edge(nmax, n, 1.0))
       else {
         if (record.maxCoreNodes.exists(x => x._1 != n))
@@ -175,20 +179,22 @@ object ngDBSCAN {
 
     tGraph = Graph(gGraph.vertices, tGraph.edges ++ tGraphEdges)
 
+    println("MaxCoreNodeHGraph" + maxCoreNodeHGraph.vertices.count)
     val gGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) =>
+      println("record" + record.state)
       val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
-      if (record != Core)
+      if (record.state != Core)
           Array[Edge[Double]]()
       else
         if (record.maxCoreNodes.length > 1)
-        record.maxCoreNodes.filter(_._1 != nmax).flatMap(v => Array(Edge(v._1, nmax, 1.0), Edge(v._1, nmax, 1.0)))
+        record.maxCoreNodes.filter(_._1 != nmax).flatMap(v => Array(Edge(v._1, nmax, 1.0), Edge(nmax, v._1, 1.0)))
           else 
             Array[Edge[Double]]()
       })
 
     val updateVertexs = maxCoreNodeHGraph.vertices.map({ case (n, record) =>
         val nmax = record.maxCoreNodes.maxBy(a => a._2)._1
-        if (record != Core)
+        if (record.state != Core)
           record.active = false
         else {
           if (record.maxCoreNodes.exists(x => x._1 != n))
@@ -199,10 +205,15 @@ object ngDBSCAN {
         (n,  record)
       })
 
+      println("End gGraph edges " + gGraphEdges.count)
       // Build updated gGraph
       gGraph = Graph(updateVertexs, gGraphEdges)
 
     }
+
+    println("Final tgraph " + tGraph.vertices.count)
+    println(toGexf(tGraph))
+
   }
 
   def IsSeed(n: Long) : Boolean = {
@@ -259,6 +270,7 @@ object ngDBSCAN {
         optDegree.getOrElse(0)
      }
 
+
       // Each vertex sends its degree to its neighbours
       // and we aggregate them in a set where each vertex gets all values
       // of its neighbours and store the node with a higher degree
@@ -281,6 +293,8 @@ object ngDBSCAN {
     } else {
       maxCoreNeighbours.mapValues(_.distinct)
     }
+
+    println(maxCoreNode.count)
 
     // update record
     val maxCoreNodeGraph = gGraph.outerJoinVertices(maxCoreNode) { (_, rec, optMaxDegree) =>
