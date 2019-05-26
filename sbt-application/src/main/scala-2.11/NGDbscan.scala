@@ -8,20 +8,28 @@ import scala.util.Random.shuffle;
 import State._
 
 object ngDBSCAN {
-  val eps = 0.16
+  val eps = 0.25
   val minPts = 3
-  val k = 10 //should be 5
+  val k = 5 //should be 5 or 10
   // p limits the number of comparisons in extreme cases during Phase 1
   val p = 3
   val Mmax = 2 * k
-  val TN = 0.7
+
+  // number of nodes we actually remove
+  val TN = 0.70
   val TR = 0.01
+  // Max iterations for 1st phase
+  val MaxIter = 5
 
   def exec(sc: SparkContext, records: RDD[Record]) {
     //PHASE 1
-    /* We could use also zipWithIndex() */
     val docsCount = records.count
-    val nodes = records.zipWithUniqueId().map(_.swap)
+    // Make sure that all nodes are active
+    val activeRecords = records.map(x => {
+      x.active = true
+      x
+    })
+    val nodes = activeRecords.zipWithUniqueId().map(_.swap)
     val emptyEdges
         : org.apache.spark.rdd.RDD[org.apache.spark.graphx.Edge[Double]] =
       sc.parallelize(Seq())
@@ -40,7 +48,9 @@ object ngDBSCAN {
     println("Random edges" + randomEdges.count)
     var nGraph = Graph(nodes, randomEdges)
     var terminate = false;
-    while (!terminate) {
+    var i = 0
+    while (!terminate && i < MaxIter) {
+      i += i + 1
       // Add reverse edges
       val rEdges = nGraph.edges.reverse
       nGraph = Graph(nGraph.vertices, (nGraph.edges ++ rEdges).distinct())
@@ -64,34 +74,37 @@ object ngDBSCAN {
         Graph(epsGraph.vertices, (epsGraph.edges ++ newEdges).distinct())
       // Shrink nGraph
       val nodesToRemove = epsGraph
-        .collectNeighborIds(EdgeDirection.Either)
-        .filter(x => x._2.length >= Mmax)
-        .map(_._1)
+        .collectNeighborIds(EdgeDirection.Out)
+        .map(x => (x._1, x._2.length))
         .distinct()
-        .collect
 
-      //FIXME: we propabily should filter edges as well
-      val numberOfNodes = nGraph.vertices.count
+      //Count active nodes before disabling
+      val numberOfNodes = nGraph.vertices.filter(_._2.active).count()
 
-      println("Number of nodes to remove: " + nodesToRemove.length)
-      nodesToRemove.foreach(println)
-      nGraph = Graph(
-        nGraph.vertices.filter(n => !nodesToRemove.contains(n._1)),
-        nGraph.edges.filter(
-          e =>
-            !(nodesToRemove.contains(e.srcId) || nodesToRemove
-              .contains(e.dstId))
-        )
-      )
+      // Disable nodes we have to remove
+      nGraph = nGraph.joinVertices(nodesToRemove)((_, rec, n) => {
+        if (n >= Mmax)
+          rec.active = false
+        rec
+      })
+
+      println("Number of nodes to remove: ")
+      nodesToRemove.filter(_._2 >= Mmax).foreach(println)
+
       println("Current nodes we have:")
+      nGraph.vertices.filter(_._2.active).map(_._1).foreach(println)
 
-      nGraph.vertices.map(_._1).foreach(println)
-
-      println("With filter" + nGraph.edges.count)
-      val delta = numberOfNodes - nGraph.vertices.count
+      println("Number of edges" + nGraph.edges.count)
+      val delta = numberOfNodes - nGraph.vertices.filter(_._2.active).count()
       println("Delta: " + delta)
-      println("Tn= " + nGraph.vertices.count)
-      terminate = (nGraph.vertices.count < TN * docsCount && delta < TR * docsCount) || nGraph.vertices.count <= 0
+      println(
+        "Enabled nodes:" + nGraph.vertices
+          .filter(_._2.active)
+          .count + "Disabled nodes: " + nGraph.vertices.count
+      )
+      terminate = (nGraph.vertices
+        .filter(_._2.active)
+        .count < TN * docsCount && delta < TR * docsCount) || nGraph.vertices.count <= 0
       if (!terminate) {
         // FIXME: this could crash if there are not enough edges
         var remainingEdges = sc.parallelize(
@@ -111,6 +124,11 @@ object ngDBSCAN {
     //println(toGexf(epsGraph))
 
     //Phase 2
+    // Enable all nodes
+    epsGraph = epsGraph.mapVertices((id, rec) => {
+      rec.active = true
+      rec
+    })
     println("Phase 2");
     val coresDegrees = epsGraph.degrees.filter(x => x._2 >= minPts)
     println(epsGraph.degrees.max()._2)
@@ -133,94 +151,108 @@ object ngDBSCAN {
       graph => {
         graph.mapVertices((vid, n) => n.state == Core || n.state == Border)
       },
-      vpred = (vid: VertexId, n:Boolean) => n
+      vpred = (vid: VertexId, n: Boolean) => n
     )
-  println("Number of nodes" + gGraph.vertices.count())
-  println(
-    "Number of core nodes" + gGraph.vertices
-    .filter(x => x._2.state == Core)
-    .count
-  )
-  println(
-    "Number of border nodes" + gGraph.vertices
-    .filter(x => x._2.state == Border)
-    .count
-  )
-    var tGraph
-    : Graph[Record, Double] = Graph(gGraph.vertices, emptyEdges)
+    println("Number of nodes" + gGraph.vertices.count())
+    println(
+      "Number of core nodes" + gGraph.vertices
+        .filter(x => x._2.state == Core)
+        .count
+    )
+    println(
+      "Number of border nodes" + gGraph.vertices
+        .filter(x => x._2.state == Border)
+        .count
+    )
+    var tGraph: Graph[Record, Double] = Graph(gGraph.vertices, emptyEdges)
     //probabilmente in tutte le strutture dati non ha senso mettere il vero valore della distanza
-    
-    while (gGraph.vertices.filter({case (n, record) =>
-      record.active
-    }).count() > 0) {
-    println("Remainging nodes in gGraph:" + gGraph.vertices.filter({case (n, record) =>
-    record.active}).count)
 
-    //Max selection step
-    val maxCoreNodeGGraph = calcMaxCoreNodes(gGraph, true)
+    while (gGraph.vertices
+             .filter({
+               case (n, record) =>
+                 record.active
+             })
+             .count() > 0) {
+      println(
+        "Remainging nodes in gGraph:" + gGraph.vertices
+          .filter({
+            case (n, record) =>
+              record.active
+          })
+          .count
+      )
 
-    val hGraphEdges = maxCoreNodeGGraph.vertices.flatMap({ case (n, record) =>
-      val nmax = shuffle(record.maxCoreNodes).maxBy(a => a._2)._1
-      if (record.state != Core)
-        Array(Edge(n, nmax, 1.0),
-      Edge(nmax, nmax, 1.0))
-      else
-        Edge(n, nmax, 1.0) +: record.maxCoreNodes.map(v => Edge(v._1, nmax, 1.0))
+      //Max selection step
+      val maxCoreNodeGGraph = calcMaxCoreNodes(gGraph, true)
+
+      val hGraphEdges = maxCoreNodeGGraph.vertices.flatMap({
+        case (n, record) =>
+          val nmax = shuffle(record.maxCoreNodes).maxBy(a => a._2)._1
+          if (record.state != Core)
+            Array(Edge(n, nmax, 1.0), Edge(nmax, nmax, 1.0))
+          else
+            Edge(n, nmax, 1.0) +: record.maxCoreNodes.map(
+              v => Edge(v._1, nmax, 1.0)
+            )
       })
 
-    println("Numver hGrahpEdges: " + hGraphEdges.count)
-    val hGraph = Graph(gGraph.vertices, hGraphEdges)
+      println("Numver hGrahpEdges: " + hGraphEdges.count)
+      val hGraph = Graph(gGraph.vertices, hGraphEdges)
 
-    //Pruning step
-    val maxCoreNodeHGraph = calcMaxCoreNodes(hGraph, false)
-    val tGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) =>
-      val nmax = shuffle(record.maxCoreNodes).maxBy(a => a._2)._1
-      if (record.state != Core)
-        Array(Edge(nmax, n, 1.0))
-      else {
-        if (!(record.maxCoreNodes.exists(x => x._1 == n)))
-          Array(Edge(nmax, n, 1.0))
-          else 
-            Array[Edge[Double]]()
-        }
-      })
-
-    tGraph = Graph(tGraph.vertices, tGraph.edges ++ tGraphEdges)
-
-    println("MaxCoreNodeHGraph" + maxCoreNodeHGraph.vertices.count)
-    val gGraphEdges = maxCoreNodeHGraph.vertices.flatMap({ case (n, record) =>
-      val nmax = shuffle(record.maxCoreNodes).maxBy(a => a._2)._1
-      if (record.state != Core)
-          Array[Edge[Double]]()
-      else
-        if (record.maxCoreNodes.length > 1)
-        record.maxCoreNodes.filter(_._1 != nmax).flatMap(v => Array(Edge(v._1, nmax, 1.0), Edge(nmax, v._1, 1.0)))
-          else 
-            Array[Edge[Double]]()
-      })
-
-    val updateVertexs = maxCoreNodeHGraph.vertices.map({ case (n, record) =>
-        val nmax = shuffle(record.maxCoreNodes).maxBy(a => a._2)._1
-        if (record.state != Core)
-          record.active = false
-        else {
-          if (!(record.maxCoreNodes.exists(x => x._1 == n)))
-            record.active = false
-          if (IsSeed(n, record.maxCoreNodes)) {
-            println("Remove is seed");
-            record.active = false
+      //Pruning step
+      val maxCoreNodeHGraph = calcMaxCoreNodes(hGraph, false)
+      val tGraphEdges = maxCoreNodeHGraph.vertices.flatMap({
+        case (n, record) =>
+          val nmax = shuffle(record.maxCoreNodes).maxBy(a => a._2)._1
+          if (record.state != Core)
+            Array(Edge(nmax, n, 1.0))
+          else {
+            if (!(record.maxCoreNodes.exists(x => x._1 == n)))
+              Array(Edge(nmax, n, 1.0))
+            else
+              Array[Edge[Double]]()
           }
-        }
-        (n,  record)
+      })
+
+      tGraph = Graph(tGraph.vertices, tGraph.edges ++ tGraphEdges)
+
+      println("MaxCoreNodeHGraph" + maxCoreNodeHGraph.vertices.count)
+      val gGraphEdges = maxCoreNodeHGraph.vertices.flatMap({
+        case (n, record) =>
+          val nmax = shuffle(record.maxCoreNodes).maxBy(a => a._2)._1
+          if (record.state != Core)
+            Array[Edge[Double]]()
+          else if (record.maxCoreNodes.length > 1)
+            record.maxCoreNodes
+              .filter(_._1 != nmax)
+              .flatMap(v => Array(Edge(v._1, nmax, 1.0), Edge(nmax, v._1, 1.0)))
+          else
+            Array[Edge[Double]]()
+      })
+
+      val updateVertexs = maxCoreNodeHGraph.vertices.map({
+        case (n, record) =>
+          val nmax = shuffle(record.maxCoreNodes).maxBy(a => a._2)._1
+          if (record.state != Core)
+            record.active = false
+          else {
+            if (!(record.maxCoreNodes.exists(x => x._1 == n)))
+              record.active = false
+            if (IsSeed(n, record.maxCoreNodes)) {
+              println("Remove is seed");
+              record.active = false
+            }
+          }
+          (n, record)
       })
 
       println("End gGraph edges " + gGraphEdges.count)
       println("End gGraph vertices " + updateVertexs.count)
       /*
-      updateVertexs.collect().foreach({ case (n, record) => 
+      updateVertexs.collect().foreach({ case (n, record) =>
         record.maxCoreNodes.foreach(println)
       })
-      */
+       */
       // Build updated gGraph
       gGraph = Graph(updateVertexs, gGraphEdges)
 
@@ -230,17 +262,22 @@ object ngDBSCAN {
     println(toGexf(tGraph))
 
     val cc = tGraph.connectedComponents().vertices
-    val joined = tGraph.outerJoinVertices(cc) {
-    (vid, vd, cc) => (vd, cc)
+    val joined = tGraph.outerJoinVertices(cc) { (vid, vd, cc) =>
+      (vd, cc)
     }
     val groups = joined.vertices.values.groupBy(_._2)
-    val groupClean = groups.map({ case (a,b) => b.map({ case (x, y) => x })})
-    groupClean.collect().foreach(x =>
-    println("Number of tweets in cluster " + x.size)
-  )
+    val groupClean = groups.map({ case (a, b) => b.map({ case (x, y) => x }) })
+    groupClean
+      .collect()
+      .foreach(x => {
+        println("Number of tweets in cluster " + x.size)
+        x.foreach(x => println(x.tweet))
+      })
+
+    println("We got " + groupClean.count + " different clusters")
   }
 
-  def IsSeed(n: Long, neighbours: List[(Long, Int)]) : Boolean = {
+  def IsSeed(n: Long, neighbours: List[(Long, Int)]): Boolean = {
     val remainign = neighbours.filter(x => x._1 != n)
     remainign.length == 0
   }
@@ -250,7 +287,7 @@ object ngDBSCAN {
       record1.weighsVector.toArray.union(record2.weighsVector.toSeq).map(_._1)
     val first = temp.map(record1.weighsVector)
     val second = temp.map(record2.weighsVector)
-    val dist =  CosineSimilarity.cosineSimilarity(first, second)
+    val dist = CosineSimilarity.cosineSimilarity(first, second)
     return dist
   }
 
@@ -287,28 +324,29 @@ object ngDBSCAN {
       "</gexf>"
   }
   def calcMaxCoreNodes(
-    gGraphAll: Graph[Record, Double],
-    include_self: Boolean
+      gGraphAll: Graph[Record, Double],
+      include_self: Boolean
   ): Graph[Record, Double] = {
-          // Remove all disabled nodes
-          var gGraph = gGraphAll.filter(
+    // Remove all disabled nodes
+    var gGraph = gGraphAll.filter(
       graph => {
         graph.mapVertices((vid, n) => n.active)
       },
-      vpred = (vid: VertexId, n:Boolean) => n
+      vpred = (vid: VertexId, n: Boolean) => n
     )
-          //Max selection step
-      // Create a graph where the attribute is a degree of a vertex
-      val graphWithDegrees = gGraph.outerJoinVertices(gGraph.degrees) { (_, _, optDegree) =>
+    //Max selection step
+    // Create a graph where the attribute is a degree of a vertex
+    val graphWithDegrees = gGraph.outerJoinVertices(gGraph.degrees) {
+      (_, _, optDegree) =>
         optDegree.getOrElse(0)
-     }
+    }
 
-
-      // Each vertex sends its degree to its neighbours
-      // and we aggregate them in a set where each vertex gets all values
-      // of its neighbours and store the node with a higher degree
-      // returns a RDD[(VertexId, Int)]
-      val maxCoreNeighbours = graphWithDegrees.aggregateMessages[List[(VertexId, Int)]](
+    // Each vertex sends its degree to its neighbours
+    // and we aggregate them in a set where each vertex gets all values
+    // of its neighbours and store the node with a higher degree
+    // returns a RDD[(VertexId, Int)]
+    val maxCoreNeighbours =
+      graphWithDegrees.aggregateMessages[List[(VertexId, Int)]](
         sendMsg = triplet => {
           val srcDegree = List((triplet.srcId, triplet.srcAttr))
           val dstDegree = List((triplet.dstId, triplet.dstAttr))
@@ -320,9 +358,11 @@ object ngDBSCAN {
 
     // Consider the node itself as possible maxCoreNode
     val maxCoreNode = if (include_self) {
-      maxCoreNeighbours.innerJoin(graphWithDegrees.vertices)((vid, nDegreeList, myDegree) => {
-        ((vid, myDegree)::nDegreeList).distinct
-      })
+      maxCoreNeighbours.innerJoin(graphWithDegrees.vertices)(
+        (vid, nDegreeList, myDegree) => {
+          ((vid, myDegree) :: nDegreeList).distinct
+        }
+      )
     } else {
       maxCoreNeighbours.mapValues(_.distinct)
     }
@@ -332,16 +372,17 @@ object ngDBSCAN {
     println(gGraph.vertices.count)
     gGraph.vertices.collect.foreach(println)
     maxCoreNode.collect.foreach(println)
-    */
+     */
 
     // update record
-    val maxCoreNodeGraph = gGraph.outerJoinVertices(maxCoreNode) { (vid, rec, optMaxDegree) =>
-    if (include_self) {
-      rec.maxCoreNodes = optMaxDegree.getOrElse((vid, 10)::List())
-    } else {
-      rec.maxCoreNodes = optMaxDegree.get
-    }
-      rec
+    val maxCoreNodeGraph = gGraph.outerJoinVertices(maxCoreNode) {
+      (vid, rec, optMaxDegree) =>
+        if (include_self) {
+          rec.maxCoreNodes = optMaxDegree.getOrElse((vid, 10) :: List())
+        } else {
+          rec.maxCoreNodes = optMaxDegree.get
+        }
+        rec
     }
 
     //maxCoreNode.collect.foreach(println)
