@@ -24,6 +24,9 @@ import org.apache.spark.streaming.{Seconds, StreamingContext}
 import twitter4j.auth.OAuthAuthorization
 import twitter4j.conf.ConfigurationBuilder
 
+import java.text.SimpleDateFormat
+import java.io.PrintWriter
+
 object TwitterPopularTags {
   def main(args: Array[String]) {
     /* Set logging level if log4j not configured (override by adding log4j.properties to classpath) */
@@ -35,8 +38,21 @@ object TwitterPopularTags {
       .appName("TwitterPopularTags")
       .getOrCreate()
 
+    // --------- Test ----------//
+    val startExecTime = System.currentTimeMillis()
+    println(
+      "-------------------------------- Start execution at: " + startExecTime + " ms------------------------------------------"
+    )
+    val startTime = new SimpleDateFormat("HH:mm:ss").format(startExecTime)
+    println(
+      "-------------------------------- Start execution at: " + startTime + "-------------------------------------------------"
+    )
+    // --------- Test ----------//
+
     val sc = sparkSession.sparkContext
-    val cb = new ConfigurationBuilder
+
+// The following code has been commented because the data set has been already obtained!
+    /*  val cb = new ConfigurationBuilder
 
     cb.setDebugEnabled(true)
       .setOAuthConsumerKey(sc.getConf.get("spark.twitter.consumerKey"))
@@ -69,7 +85,7 @@ object TwitterPopularTags {
     })
 
     /* Store every tweet to a text file */
-    data.saveAsTextFiles("hdfs://localhost:8020/tweets");
+    data.saveAsTextFiles("tweets");
 
     var countTweet: Long = 0;
     /* Print tweets */
@@ -87,8 +103,8 @@ object TwitterPopularTags {
     /* TODO: use a timeout */
     /* Wait for stream to terminate */
     ssc.awaitTermination()
-
-    val docs = sc.textFile("hdfs://localhost:8020/tweets*")
+     */
+    val docs = sc.textFile("tweets*")
 
     println("Number of documents to analyze: " + docs.count)
 
@@ -136,6 +152,31 @@ object TwitterPopularTags {
     }
 
     SequentialDBSCAN.exec(dbscan_records)
+
+    // --------- Test ----------//
+    val endExecTime = System.currentTimeMillis()
+    println(
+      "-------------------------------- End execution at: " + endExecTime + " ms----------------------------------------------"
+    )
+    val endTime = new SimpleDateFormat("HH:mm:ss").format(endExecTime)
+    println(
+      "-------------------------------- End execution at: " + endTime + "-----------------------------------------------------"
+    )
+
+    val difference = endExecTime - startExecTime
+    println(
+      "-------------------------------- Execution time: " + difference + " ms-------------------------------------------------"
+    )
+    val diff = new SimpleDateFormat("mm:ss").format(difference)
+    println(
+      "-------------------------------- Execution time: " + diff + "----------------------------------------------------------"
+    )
+    new PrintWriter("execution_time.txt") {
+      write("Execution time of sequential DBScan over " + docs.count + " tweets: "); write(diff);
+      close
+    }
+    // --------- Test ----------//
+
     sparkSession.stop()
   }
 }
