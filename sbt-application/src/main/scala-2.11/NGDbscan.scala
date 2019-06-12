@@ -8,7 +8,7 @@ import scala.util.Random.shuffle;
 import State._
 
 object ngDBSCAN {
-  val eps = 0.25
+  val eps = 0.20
   val minPts = 3
   val k = 5 //should be 5 or 10
   // p limits the number of comparisons in extreme cases during Phase 1
@@ -53,10 +53,14 @@ object ngDBSCAN {
       i = i + 1
       // Add reverse edges
       val rEdges = nGraph.edges.reverse
+      println("Reverse edges " + rEdges.count)
       nGraph = Graph(nGraph.vertices, (nGraph.edges ++ rEdges).distinct())
       // add more edges to nGraph
-      // FIXME: the number of neighbors should be limited by pk
-      val neighbors = nGraph.collectNeighbors(EdgeDirection.Out)
+      // We limit the number of neighbors by ca. pk
+      val neighbors = nGraph.collectNeighbors(EdgeDirection.Out).map(x => {
+        (x._1, x._2.take(p*k))
+        })
+
       val xEdges = neighbors
         .flatMap(n1 => {
           n1._2.flatMap(
@@ -67,6 +71,8 @@ object ngDBSCAN {
         })
         .filter(x => x.srcId != x.dstId)
         .distinct()
+
+      println("xEdges " + xEdges.count)
       nGraph = Graph(nGraph.vertices, (nGraph.edges ++ xEdges).distinct())
       // update epsGraph
       val newEdges = xEdges.filter(_.attr >= eps)
@@ -79,7 +85,7 @@ object ngDBSCAN {
         .distinct()
 
       //Count active nodes before disabling
-      val numberOfNodes = nGraph.vertices.filter(_._2.active).count()
+      val numberOfNodes = nGraph.vertices.count()
 
       // Disable nodes we have to remove
       nGraph = nGraph.joinVertices(nodesToRemove)((_, rec, n) => {
@@ -87,31 +93,28 @@ object ngDBSCAN {
           rec.active = false
         rec
       })
+    nGraph = nGraph.filter(
+      graph => {
+        graph.mapVertices((vid, n) => n.active)
+      },
+      vpred = (vid: VertexId, n: Boolean) => n
+    )
 
+  nodesToRemove.foreach(println)
       println("Number of nodes to remove: ")
       nodesToRemove.filter(_._2 >= Mmax).foreach(println)
 
-      println("Current nodes we have:")
-      nGraph.vertices.filter(_._2.active).map(_._1).foreach(println)
-
       println("Number of edges" + nGraph.edges.count)
-      val delta = numberOfNodes - nGraph.vertices.filter(_._2.active).count()
+      val delta = numberOfNodes - nGraph.vertices.count()
       println("Delta: " + delta)
       println(
-        "Enabled nodes:" + nGraph.vertices
-          .filter(_._2.active)
-          .count + "Disabled nodes: " + nGraph.vertices.count
+        "Remainging nodes:" + nGraph.vertices
+          .count
       )
       terminate = (nGraph.vertices
-        .filter(_._2.active)
         .count < TN * docsCount && delta < TR * docsCount) || nGraph.vertices.count <= 0
       if (!terminate) {
-        // FIXME: this could crash if there are not enough edges
-        var remainingEdges = sc.parallelize(
-          nGraph.edges.takeOrdered(nGraph.edges.count.toInt - k)(
-            Ordering[Double].reverse.on(_.attr)
-          )
-        )
+        var remainingEdges = nGraph.edges.groupBy(_.srcId).flatMap(g => g._2.toArray.sortBy(_.attr).dropRight(k))
         nGraph = Graph(nGraph.vertices, remainingEdges)
 
       }
