@@ -19,7 +19,7 @@ object ngDBSCAN {
   val TN = 0.70
   val TR = 0.01
   // Max iterations for 1st phase
-  val MaxIter = 5
+  val MaxIter = 20
 
   def exec(sc: SparkContext, records: RDD[Record]) {
     //PHASE 1
@@ -50,7 +50,7 @@ object ngDBSCAN {
     var terminate = false;
     var i = 0
     while (!terminate && i < MaxIter) {
-      i += i + 1
+      i = i + 1
       // Add reverse edges
       val rEdges = nGraph.edges.reverse
       nGraph = Graph(nGraph.vertices, (nGraph.edges ++ rEdges).distinct())
