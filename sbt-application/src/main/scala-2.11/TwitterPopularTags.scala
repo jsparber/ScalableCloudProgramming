@@ -30,7 +30,7 @@ object TwitterPopularTags {
     if (!Logger.getRootLogger.getAllAppenders.hasMoreElements) {
       Logger.getRootLogger.setLevel(Level.WARN)
     }
-    Logger.getRootLogger.setLevel(Level.OFF)
+    Logger.getRootLogger.setLevel(Level.WARN)
 
     val sparkSession = SparkSession.builder
       .appName("TwitterPopularTags")
@@ -38,7 +38,7 @@ object TwitterPopularTags {
 
     val sc = sparkSession.sparkContext
 
-    val docs = sc.textFile("tweets*")
+    val docs = sc.textFile("hdfs:///tweets*")
 
     println("Number of documents to analyze: " + docs.count)
 
