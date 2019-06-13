@@ -8,7 +8,7 @@ import scala.util.Random.shuffle;
 import State._
 
 object ngDBSCAN {
-  val eps = 0.20
+  val eps = 0.25
   val minPts = 3
   val k = 5 //should be 5 or 10
   // p limits the number of comparisons in extreme cases during Phase 1
@@ -57,8 +57,10 @@ object ngDBSCAN {
       nGraph = Graph(nGraph.vertices, (nGraph.edges ++ rEdges).distinct())
       // add more edges to nGraph
       // We limit the number of neighbors by ca. pk
-      val neighbors = nGraph.collectNeighbors(EdgeDirection.Out).map(x => {
-        (x._1, x._2.take(p*k))
+      val neighbors = nGraph
+        .collectNeighbors(EdgeDirection.Out)
+        .map(x => {
+          (x._1, x._2.take(p * k))
         })
 
       val xEdges = neighbors
@@ -93,14 +95,13 @@ object ngDBSCAN {
           rec.active = false
         rec
       })
-    nGraph = nGraph.filter(
-      graph => {
-        graph.mapVertices((vid, n) => n.active)
-      },
-      vpred = (vid: VertexId, n: Boolean) => n
-    )
+      nGraph = nGraph.filter(
+        graph => {
+          graph.mapVertices((vid, n) => n.active)
+        },
+        vpred = (vid: VertexId, n: Boolean) => n
+      )
 
-  nodesToRemove.foreach(println)
       println("Number of nodes to remove: ")
       nodesToRemove.filter(_._2 >= Mmax).foreach(println)
 
@@ -108,13 +109,13 @@ object ngDBSCAN {
       val delta = numberOfNodes - nGraph.vertices.count()
       println("Delta: " + delta)
       println(
-        "Remainging nodes:" + nGraph.vertices
-          .count
+        "Remainging nodes:" + nGraph.vertices.count
       )
-      terminate = (nGraph.vertices
-        .count < TN * docsCount && delta < TR * docsCount) || nGraph.vertices.count <= 0
+      terminate = (nGraph.vertices.count < TN * docsCount && delta < TR * docsCount) || nGraph.vertices.count <= 0
       if (!terminate) {
-        var remainingEdges = nGraph.edges.groupBy(_.srcId).flatMap(g => g._2.toArray.sortBy(_.attr).dropRight(k))
+        var remainingEdges = nGraph.edges
+          .groupBy(_.srcId)
+          .flatMap(g => g._2.toArray.sortBy(_.attr).dropRight(k))
         nGraph = Graph(nGraph.vertices, remainingEdges)
 
       }
