@@ -23,6 +23,7 @@ object ngDBSCAN {
 
   def exec(sc: SparkContext, records: RDD[Record]) {
     //PHASE 1
+    println("Start Phase 1")
     val docsCount = records.count
     // Make sure that all nodes are active
     val activeRecords = records.map(x => {
@@ -45,7 +46,6 @@ object ngDBSCAN {
             .take(k)
             .map(n2 => Edge(n1._1, n2._1, calculateDistance(n1._2, n2._2)))
       )
-    println("Random edges" + randomEdges.count)
     var nGraph = Graph(nodes, randomEdges)
     var terminate = false;
     var i = 0
@@ -53,7 +53,6 @@ object ngDBSCAN {
       i = i + 1
       // Add reverse edges
       val rEdges = nGraph.edges.reverse
-      println("Reverse edges " + rEdges.count)
       nGraph = Graph(nGraph.vertices, (nGraph.edges ++ rEdges).distinct())
       // add more edges to nGraph
       // We limit the number of neighbors by ca. pk
@@ -74,7 +73,6 @@ object ngDBSCAN {
         .filter(x => x.srcId != x.dstId)
         .distinct()
 
-      println("xEdges " + xEdges.count)
       nGraph = Graph(nGraph.vertices, (nGraph.edges ++ xEdges).distinct())
       // update epsGraph
       val newEdges = xEdges.filter(_.attr >= eps)
@@ -102,15 +100,7 @@ object ngDBSCAN {
         vpred = (vid: VertexId, n: Boolean) => n
       )
 
-      println("Number of nodes to remove: ")
-      nodesToRemove.filter(_._2 >= Mmax).foreach(println)
-
-      println("Number of edges" + nGraph.edges.count)
       val delta = numberOfNodes - nGraph.vertices.count()
-      println("Delta: " + delta)
-      println(
-        "Remainging nodes:" + nGraph.vertices.count
-      )
       terminate = (nGraph.vertices.count < TN * docsCount && delta < TR * docsCount) || nGraph.vertices.count <= 0
       if (!terminate) {
         var remainingEdges = nGraph.edges
@@ -121,11 +111,7 @@ object ngDBSCAN {
       }
     }
 
-    println("Terminated")
-    //println(epsGraph.edges.count)
-    //epsGraph.vertices.foreach(x => println(x._1 + " " + x._2))
-    //epsGraph.edges.foreach(x => println(x.attr))
-    //println(toGexf(epsGraph))
+    println("Phase 1 terminated")
 
     //Phase 2
     // Enable all nodes
@@ -135,7 +121,6 @@ object ngDBSCAN {
     })
     println("Phase 2");
     val coresDegrees = epsGraph.degrees.filter(x => x._2 >= minPts)
-    println(epsGraph.degrees.max()._2)
     val coreGraph = epsGraph.joinVertices(coresDegrees)((_, rec, _) => {
       rec.state = Core; rec
     })
@@ -157,34 +142,15 @@ object ngDBSCAN {
       },
       vpred = (vid: VertexId, n: Boolean) => n
     )
-    println("Number of nodes" + gGraph.vertices.count())
-    println(
-      "Number of core nodes" + gGraph.vertices
-        .filter(x => x._2.state == Core)
-        .count
-    )
-    println(
-      "Number of border nodes" + gGraph.vertices
-        .filter(x => x._2.state == Border)
-        .count
-    )
     var tGraph: Graph[Record, Double] = Graph(gGraph.vertices, emptyEdges)
-    //probabilmente in tutte le strutture dati non ha senso mettere il vero valore della distanza
 
+    //probabilmente in tutte le strutture dati non ha senso mettere il vero valore della distanza
     while (gGraph.vertices
              .filter({
                case (n, record) =>
                  record.active
              })
              .count() > 0) {
-      println(
-        "Remainging nodes in gGraph:" + gGraph.vertices
-          .filter({
-            case (n, record) =>
-              record.active
-          })
-          .count
-      )
 
       //Max selection step
       val maxCoreNodeGGraph = calcMaxCoreNodes(gGraph, true)
@@ -200,7 +166,6 @@ object ngDBSCAN {
             )
       })
 
-      println("Numver hGrahpEdges: " + hGraphEdges.count)
       val hGraph = Graph(gGraph.vertices, hGraphEdges)
 
       //Pruning step
@@ -220,7 +185,6 @@ object ngDBSCAN {
 
       tGraph = Graph(tGraph.vertices, tGraph.edges ++ tGraphEdges)
 
-      println("MaxCoreNodeHGraph" + maxCoreNodeHGraph.vertices.count)
       val gGraphEdges = maxCoreNodeHGraph.vertices.flatMap({
         case (n, record) =>
           val nmax = shuffle(record.maxCoreNodes).maxBy(a => a._2)._1
@@ -243,27 +207,16 @@ object ngDBSCAN {
             if (!(record.maxCoreNodes.exists(x => x._1 == n)))
               record.active = false
             if (IsSeed(n, record.maxCoreNodes)) {
-              println("Remove is seed");
               record.active = false
             }
           }
           (n, record)
       })
 
-      println("End gGraph edges " + gGraphEdges.count)
-      println("End gGraph vertices " + updateVertexs.count)
-      /*
-      updateVertexs.collect().foreach({ case (n, record) =>
-        record.maxCoreNodes.foreach(println)
-      })
-       */
       // Build updated gGraph
       gGraph = Graph(updateVertexs, gGraphEdges)
 
     }
-
-    println("Final tgraph " + tGraph.vertices.count)
-    println(toGexf(tGraph))
 
     val cc = tGraph.connectedComponents().vertices
     val joined = tGraph.outerJoinVertices(cc) { (vid, vd, cc) =>
@@ -371,13 +324,6 @@ object ngDBSCAN {
       maxCoreNeighbours.mapValues(_.distinct)
     }
 
-    /*
-    println(maxCoreNode.count)
-    println(gGraph.vertices.count)
-    gGraph.vertices.collect.foreach(println)
-    maxCoreNode.collect.foreach(println)
-     */
-
     // update record
     val maxCoreNodeGraph = gGraph.outerJoinVertices(maxCoreNode) {
       (vid, rec, optMaxDegree) =>
@@ -389,7 +335,6 @@ object ngDBSCAN {
         rec
     }
 
-    //maxCoreNode.collect.foreach(println)
     maxCoreNodeGraph
   }
 }
