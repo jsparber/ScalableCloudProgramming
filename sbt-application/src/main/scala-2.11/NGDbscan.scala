@@ -29,8 +29,8 @@ object ngDBSCAN {
     val activeRecords = records.map(x => {
       x.active = true
       x
-    })
-    val nodes = activeRecords.zipWithUniqueId().map(_.swap)
+    }).persist()
+    val nodes = activeRecords.zipWithUniqueId().map(_.swap).persist()
     val emptyEdges
         : org.apache.spark.rdd.RDD[org.apache.spark.graphx.Edge[Double]] =
       sc.parallelize(Seq())
@@ -45,7 +45,7 @@ object ngDBSCAN {
             .shuffle(collection.toList)
             .take(k)
             .map(n2 => Edge(n1._1, n2._1, calculateDistance(n1._2, n2._2)))
-      )
+      ).persist()
     var nGraph = Graph(nodes, randomEdges)
     var terminate = false;
     var i = 0
@@ -70,19 +70,18 @@ object ngDBSCAN {
                 .map(n3 => Edge(n3._1, n2._1, calculateDistance(n3._2, n2._2)))
           )
         })
-        .filter(x => x.srcId != x.dstId)
-        .distinct()
+        .filter(x => x.srcId != x.dstId).persist()
 
-      nGraph = Graph(nGraph.vertices, (nGraph.edges ++ xEdges).distinct())
+      nGraph = Graph(nGraph.vertices, (nGraph.edges ++ xEdges).distinct()).presist()
       // update epsGraph
-      val newEdges = xEdges.filter(_.attr >= eps)
+      val newEdges = xEdges.filter(_.attr >= eps).persist()
       epsGraph =
-        Graph(epsGraph.vertices, (epsGraph.edges ++ newEdges).distinct())
+        Graph(epsGraph.vertices, (epsGraph.edges ++ newEdges).distinct()).presist()
       // Shrink nGraph
       val nodesToRemove = epsGraph
         .collectNeighborIds(EdgeDirection.Out)
         .map(x => (x._1, x._2.length))
-        .distinct()
+        .distinct().persist()
 
       //Count active nodes before disabling
       val numberOfNodes = nGraph.vertices.count()
@@ -92,13 +91,13 @@ object ngDBSCAN {
         if (n >= Mmax)
           rec.active = false
         rec
-      })
+      }).persist()
       nGraph = nGraph.filter(
         graph => {
           graph.mapVertices((vid, n) => n.active)
         },
         vpred = (vid: VertexId, n: Boolean) => n
-      )
+      ).persist()
 
       val delta = numberOfNodes - nGraph.vertices.count()
       terminate = (nGraph.vertices.count < TN * docsCount && delta < TR * docsCount) || nGraph.vertices.count <= 0
@@ -107,7 +106,6 @@ object ngDBSCAN {
           .groupBy(_.srcId)
           .flatMap(g => g._2.toArray.sortBy(_.attr).dropRight(k))
         nGraph = Graph(nGraph.vertices, remainingEdges)
-
       }
     }
 
