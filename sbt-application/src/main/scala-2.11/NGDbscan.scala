@@ -26,10 +26,12 @@ object ngDBSCAN {
     println("Start Phase 1")
     val docsCount = records.count
     // Make sure that all nodes are active
-    val activeRecords = records.map(x => {
-      x.active = true
-      x
-    }).persist()
+    val activeRecords = records
+      .map(x => {
+        x.active = true
+        x
+      })
+      .persist()
     val nodes = activeRecords.zipWithUniqueId().map(_.swap).persist()
     val emptyEdges
         : org.apache.spark.rdd.RDD[org.apache.spark.graphx.Edge[Double]] =
@@ -39,13 +41,15 @@ object ngDBSCAN {
     /* Create radom edges with weight based on the distance between the nodes */
     val randomEdges
         : org.apache.spark.rdd.RDD[org.apache.spark.graphx.Edge[Double]] =
-      nodes.flatMap(
-        n1 =>
-          Random
-            .shuffle(collection.toList)
-            .take(k)
-            .map(n2 => Edge(n1._1, n2._1, calculateDistance(n1._2, n2._2)))
-      ).persist()
+      nodes
+        .flatMap(
+          n1 =>
+            Random
+              .shuffle(collection.toList)
+              .take(k)
+              .map(n2 => Edge(n1._1, n2._1, calculateDistance(n1._2, n2._2)))
+        )
+        .persist()
     var nGraph = Graph(nodes, randomEdges)
     var terminate = false;
     var i = 0
@@ -70,37 +74,42 @@ object ngDBSCAN {
                 .map(n3 => Edge(n3._1, n2._1, calculateDistance(n3._2, n2._2)))
           )
         })
-        .filter(x => x.srcId != x.dstId).persist()
+        .filter(x => x.srcId != x.dstId)
+        .persist()
 
-      nGraph = Graph(nGraph.vertices, (nGraph.edges ++ xEdges).distinct()).presist()
+      nGraph =
+        Graph(nGraph.vertices, (nGraph.edges ++ xEdges).distinct().persist())
       // update epsGraph
       val newEdges = xEdges.filter(_.attr >= eps).persist()
-      epsGraph =
-        Graph(epsGraph.vertices, (epsGraph.edges ++ newEdges).distinct()).presist()
+      epsGraph = Graph(
+        epsGraph.vertices,
+        (epsGraph.edges ++ newEdges).distinct().persist()
+      )
       // Shrink nGraph
       val nodesToRemove = epsGraph
         .collectNeighborIds(EdgeDirection.Out)
         .map(x => (x._1, x._2.length))
-        .distinct().persist()
+        .filter(_._2 >= Mmax)
+        .map(_._1)
+        .persist()
 
       //Count active nodes before disabling
       val numberOfNodes = nGraph.vertices.count()
 
-      // Disable nodes we have to remove
-      nGraph = nGraph.joinVertices(nodesToRemove)((_, rec, n) => {
-        if (n >= Mmax)
-          rec.active = false
-        rec
-      }).persist()
-      nGraph = nGraph.filter(
-        graph => {
-          graph.mapVertices((vid, n) => n.active)
-        },
-        vpred = (vid: VertexId, n: Boolean) => n
-      ).persist()
+      val deptBC = sc.broadcast(nodesToRemove.collect.toSet)
+      // Remove nodes we have to remove
+      nGraph = nGraph
+        .filter(
+          graph => {
+            graph.mapVertices((vid, n) => deptBC.value.contains(vid))
+          },
+          vpred = (vid: VertexId, n: Boolean) => n
+        )
+        .persist()
 
-      val delta = numberOfNodes - nGraph.vertices.count()
-      terminate = (nGraph.vertices.count < TN * docsCount && delta < TR * docsCount) || nGraph.vertices.count <= 0
+      val remaingNodes = nGraph.vertices.count()
+      val delta = numberOfNodes - remaingNodes
+      terminate = (remaingNodes < TN * docsCount && delta < TR * docsCount) || remaingNodes <= 0
       if (!terminate) {
         var remainingEdges = nGraph.edges
           .groupBy(_.srcId)
