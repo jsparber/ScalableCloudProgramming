@@ -40,60 +40,8 @@ object TwitterPopularTags {
       .getOrCreate()
 
     val sc = sparkSession.sparkContext
-    val cb = new ConfigurationBuilder
 
-    cb.setDebugEnabled(true)
-      .setOAuthConsumerKey(sc.getConf.get("spark.twitter.consumerKey"))
-      .setOAuthConsumerSecret(sc.getConf.get("spark.twitter.consumerSecret"))
-      .setOAuthAccessToken(sc.getConf.get("spark.twitter.accessToken"))
-      .setOAuthAccessTokenSecret(
-        sc.getConf.get("spark.twitter.accessTokenSecret")
-      )
-    /*FIXME: Not avaible probabily because of old twitter4j version	.setTweetModeExtended(true) */
-
-    val auth = new OAuthAuthorization(cb.build)
-
-    /* Twitter filter */
-    val filters = Array[String]()
-    val ssc = new StreamingContext(sc, Seconds(2))
-    val stream = TwitterUtils.createStream(ssc, Some(auth), filters)
-
-    val englishTweets = stream.filter(x => x.getLang() == "en" && !x.isRetweet())
-    val data = englishTweets.flatMap(status => {
-      val text = if (status.isRetweeted) {
-        status.getRetweetedStatus.getText
-      } else {
-        status.getText
-      }
-      /* TODO: add filter for all special chars */
-      Array(
-        text.filter(_ >= ' ')
-              )
-    })
-
-    /* Store every tweet to a text file */
-    data.saveAsTextFiles("hdfs://hadoop:9000/tweets")
-
-    var countTweet: Long = 0;
-    /* Print tweets */
-    data.foreachRDD(rdd => {
-      var top = rdd.take(10)
-      println("\nTweets (%s total):".format(rdd.count()))
-      top.foreach { case (count) => println("%s".format(count)) }
-      /* Collect at least on RDD with more then 20 tweets */
-      countTweet += rdd.count
-      if (countTweet > 500) {
-        ssc.stop(false)
-      }
-    })
-    ssc.start()
-    /* TODO: use a timeout */
-    /* Wait for stream to terminate */
-    ssc.awaitTermination()
-
-    val docs = sc.textFile("hdfs://hadoop:9000/tweets*")
-
-    println("Number of documents to analyze: " + docs.count)
+    val docs = sc.textFile("hdfs:///tweets*")
 
     /* Calculate word frequency */
     val records = docs.map(doc => {
@@ -111,10 +59,6 @@ object TwitterPopularTags {
         .map({ case (key, n) => (key, n.toDouble / wordArray.length) })
         new TweetTF(doc, map)
     })
-    /* Print all records containing only tf (without idf) */
-    for (a <- records.collect) {
-      println("TF for each document: " + a.weighsVector)
-    }
 
     /* Calculate inverse document frequency */
     val docsSize = docs.count
@@ -123,10 +67,6 @@ object TwitterPopularTags {
       .map({ case (key, _) => (key, 1.0) })
       .reduceByKey(_ + _)
       .map({ case (key, n) => (key, Math.log10(docsSize.toDouble / n)) })
-
-    for (a <- idf.collect) {
-      println("IDF for each Token: " + a)
-    }
 
     /* FIXME: don't use collect, but probably there isn't a better solution
      *  because collect moves all data back to the driver application */
